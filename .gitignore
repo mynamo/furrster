@@ -1,0 +1,28 @@
+# secrets
+.env
+*.pem
+
+# data
+data/*.db
+data/*.sqlite
+data/raw/
+*.csv
+!tests/fixtures/*.csv
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# notebooks
+.ipynb_checkpoints/
+
+# os
+.DS_Store
+!.gitkeep

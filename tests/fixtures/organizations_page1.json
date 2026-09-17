@@ -1,0 +1,25 @@
+{
+ "organizations": [
+  {
+   "id": "CA1234",
+   "name": "Test Rescue of Oakland",
+   "email": "hi@example.org",
+   "phone": "555-0100",
+   "address": {
+    "city": "Oakland",
+    "state": "CA",
+    "postcode": "94601",
+    "country": "US"
+   },
+   "url": "https://example.org",
+   "website": "https://example.org",
+   "mission_statement": "Place every animal."
+  }
+ ],
+ "pagination": {
+  "count_per_page": 20,
+  "total_count": 1,
+  "current_page": 1,
+  "total_pages": 1
+ }
+}

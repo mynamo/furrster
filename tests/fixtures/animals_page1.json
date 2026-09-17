@@ -1,0 +1,1287 @@
+{
+ "animals": [
+  {
+   "id": 1000,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1000/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Senior",
+   "gender": "Female",
+   "size": "Large",
+   "coat": "Short",
+   "name": "Bruno",
+   "description": "",
+   "photos": [],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": true,
+    "shots_current": true
+   },
+   "environment": {
+    "children": false,
+    "dogs": false,
+    "cats": false
+   },
+   "tags": [
+    "Special Needs",
+    "Bonded Pair"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2025-08-01T05:45:00.748267+00:00",
+   "distance": 4.8
+  },
+  {
+   "id": 1001,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1001/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Baby",
+   "gender": "Female",
+   "size": "Small",
+   "coat": "Short",
+   "name": "Pixel",
+   "description": "Pixel is a wiggly, bright-eyed puppy. Pixel is a wiggly, bright-eyed puppy. Pixel is a wiggly, bright-eyed puppy. Pixel is a wiggly, bright-eyed puppy. Pixel is a wiggly, bright-eyed puppy. Pixel is a wiggly, bright-eyed puppy. Pixel is a wiggly, bright-eyed puppy. Pixel is a wiggly, bright-eyed puppy. Pixel is a wiggly, bright-eyed puppy. Pixel is a wiggly, bright-eyed puppy. ",
+   "photos": [
+    {
+     "small": "0.jpg",
+     "medium": "0.jpg",
+     "large": "0.jpg",
+     "full": "0.jpg"
+    },
+    {
+     "small": "1.jpg",
+     "medium": "1.jpg",
+     "large": "1.jpg",
+     "full": "1.jpg"
+    },
+    {
+     "small": "2.jpg",
+     "medium": "2.jpg",
+     "large": "2.jpg",
+     "full": "2.jpg"
+    },
+    {
+     "small": "3.jpg",
+     "medium": "3.jpg",
+     "large": "3.jpg",
+     "full": "3.jpg"
+    },
+    {
+     "small": "4.jpg",
+     "medium": "4.jpg",
+     "large": "4.jpg",
+     "full": "4.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-09-14T05:45:00.748267+00:00",
+   "distance": 23.01
+  },
+  {
+   "id": 1002,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1002/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": null,
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": null,
+   "gender": "Female",
+   "size": null,
+   "coat": null,
+   "name": "Nulls",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": null,
+    "declawed": null,
+    "special_needs": null,
+    "shots_current": true
+   },
+   "environment": {
+    "children": null,
+    "dogs": null,
+    "cats": null
+   },
+   "tags": [],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": null,
+   "distance": 20.36
+  },
+  {
+   "id": 1003,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1003/",
+   "type": "Cat",
+   "species": "Cat",
+   "breeds": {
+    "primary": "Domestic Short Hair",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Senior",
+   "gender": "Female",
+   "size": "Small",
+   "coat": "Short",
+   "name": "Marge",
+   "description": "Short.",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Senior"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-01-10T05:45:00.748267+00:00",
+   "distance": 17.68
+  },
+  {
+   "id": 1004,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1004/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 4",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-08-18T05:45:00.748267+00:00",
+   "distance": 36.48
+  },
+  {
+   "id": 1005,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1005/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 5",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-05-30T05:45:00.748267+00:00",
+   "distance": 2.46
+  },
+  {
+   "id": 1006,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1006/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 6",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-02-06T05:45:00.748267+00:00",
+   "distance": 17.31
+  },
+  {
+   "id": 1007,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1007/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 7",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-05-16T05:45:00.748267+00:00",
+   "distance": 4.54
+  },
+  {
+   "id": 1008,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1008/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 8",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-02-11T05:45:00.748267+00:00",
+   "distance": 3.31
+  },
+  {
+   "id": 1009,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1009/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 9",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2025-12-01T05:45:00.748267+00:00",
+   "distance": 5.83
+  },
+  {
+   "id": 1010,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1010/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 10",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-05-25T05:45:00.748267+00:00",
+   "distance": 25.59
+  },
+  {
+   "id": 1011,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1011/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 11",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2025-11-22T05:45:00.748267+00:00",
+   "distance": 37.96
+  },
+  {
+   "id": 1012,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1012/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 12",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2025-11-25T05:45:00.748267+00:00",
+   "distance": 23.84
+  },
+  {
+   "id": 1013,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1013/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 13",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-08-22T05:45:00.748267+00:00",
+   "distance": 39.07
+  },
+  {
+   "id": 1014,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1014/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 14",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-08-24T05:45:00.748267+00:00",
+   "distance": 22.71
+  },
+  {
+   "id": 1015,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1015/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 15",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-07-10T05:45:00.748267+00:00",
+   "distance": 12.29
+  },
+  {
+   "id": 1016,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1016/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 16",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-07-05T05:45:00.748267+00:00",
+   "distance": 22.09
+  },
+  {
+   "id": 1017,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1017/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 17",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2025-11-28T05:45:00.748267+00:00",
+   "distance": 13.03
+  },
+  {
+   "id": 1018,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1018/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 18",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2026-06-16T05:45:00.748267+00:00",
+   "distance": 5.02
+  },
+  {
+   "id": 1019,
+   "organization_id": "CA1234",
+   "url": "https://www.petfinder.com/dog/pet-1019/",
+   "type": "Dog",
+   "species": "Dog",
+   "breeds": {
+    "primary": "Labrador Retriever",
+    "secondary": null,
+    "mixed": true,
+    "unknown": false
+   },
+   "colors": {
+    "primary": "Black",
+    "secondary": null,
+    "tertiary": null
+   },
+   "age": "Adult",
+   "gender": "Female",
+   "size": "Medium",
+   "coat": "Short",
+   "name": "Test Dog 19",
+   "description": "A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. A very good dog. ",
+   "photos": [
+    {
+     "small": "s.jpg",
+     "medium": "m.jpg",
+     "large": "l.jpg",
+     "full": "f.jpg"
+    }
+   ],
+   "videos": [],
+   "status": "adoptable",
+   "attributes": {
+    "spayed_neutered": true,
+    "house_trained": true,
+    "declawed": null,
+    "special_needs": false,
+    "shots_current": true
+   },
+   "environment": {
+    "children": true,
+    "dogs": true,
+    "cats": null
+   },
+   "tags": [
+    "Friendly"
+   ],
+   "contact": {
+    "email": "shelter@example.org",
+    "phone": "555-0100",
+    "address": {
+     "address1": null,
+     "address2": null,
+     "city": "Oakland",
+     "state": "CA",
+     "postcode": "94601",
+     "country": "US"
+    }
+   },
+   "published_at": "2025-11-28T05:45:00.748267+00:00",
+   "distance": 25.92
+  }
+ ],
+ "pagination": {
+  "count_per_page": 20,
+  "total_count": 33,
+  "current_page": 1,
+  "total_pages": 2,
+  "_links": {}
+ }
+}
