@@ -26,3 +26,5 @@ dist/
 # os
 .DS_Store
 !.gitkeep
+data/logs/
+*.tgz

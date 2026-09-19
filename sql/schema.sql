@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS animals (
     contact_postcode   TEXT,
     distance_miles     REAL,
     url                TEXT,
-    published_at       TEXT,      -- from Petfinder
+    published_at       TEXT,      -- from Petfinder; RESETS when a shelter relists
+    first_published_at TEXT,      -- earliest published_at we've ever seen; never resets
     status_changed_at  TEXT,
     first_seen_at      TEXT NOT NULL,  -- first time WE saw it
     last_seen_at       TEXT NOT NULL,  -- most recent run it appeared in
@@ -115,6 +116,9 @@ CREATE TABLE IF NOT EXISTS generated_content (
     prompt_version TEXT,
     risk_score    REAL,
     created_at    TEXT NOT NULL,
+    review_status TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | rejected
+    reviewed_at   TEXT,
+    review_note   TEXT,
     FOREIGN KEY (animal_id) REFERENCES animals(animal_id)
 );
 
@@ -143,10 +147,22 @@ CREATE TABLE IF NOT EXISTS matches (
 );
 
 -- Convenience view: everything currently listed, with tenure in days.
-CREATE VIEW IF NOT EXISTS v_active_animals AS
+--
+-- Tenure starts at the earliest of: the first published_at we ever saw, and our own
+-- first observation. Petfinder's published_at resets when a shelter relists an
+-- animal; first_published_at and first_seen_at never do.
+DROP VIEW IF EXISTS v_active_animals;
+CREATE VIEW v_active_animals AS
 SELECT
     a.*,
-    CAST(julianday('now') - julianday(COALESCE(a.published_at, a.first_seen_at)) AS INTEGER)
-        AS days_listed
+    MIN(COALESCE(a.first_published_at, a.published_at, a.first_seen_at), a.first_seen_at)
+        AS listing_started_at,
+    CAST(
+        julianday('now')
+        - julianday(MIN(COALESCE(a.first_published_at, a.published_at, a.first_seen_at),
+                        a.first_seen_at))
+        AS INTEGER
+    ) AS days_listed,
+    CASE WHEN a.published_at > a.first_published_at THEN 1 ELSE 0 END AS relisted
 FROM animals a
 WHERE a.is_active = 1 AND a.status = 'adoptable';

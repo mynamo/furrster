@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Rendered by `make schedule`; __REPO__ is replaced with the repo's absolute path. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.furrster.ingest</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__REPO__/scripts/daily_ingest.sh</string>
+    </array>
+
+    <!-- 7:15 local time, daily. If the Mac is asleep, launchd runs it on wake. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>7</integer>
+        <key>Minute</key><integer>15</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__REPO__/data/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__REPO__/data/logs/launchd.err.log</string>
+</dict>
+</plist>

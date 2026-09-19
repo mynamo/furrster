@@ -12,8 +12,23 @@ from typing import Any, Iterable
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
 
 
+# The clock is injectable so the simulator can replay 90 days of history through
+# the real ingest code path. Production never touches it.
+_clock_override: datetime | None = None
+
+
+def set_clock(moment: datetime | None) -> None:
+    """Pin 'now' to a fixed instant (simulation/tests). Pass None to release."""
+    global _clock_override
+    _clock_override = moment
+
+
+def now_dt() -> datetime:
+    return _clock_override or datetime.now(timezone.utc)
+
+
 def utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return now_dt().isoformat(timespec="seconds")
 
 
 def connect(db_path: Path | str) -> sqlite3.Connection:
@@ -23,8 +38,30 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
     return conn
 
 
+# Columns added after v0.1. CREATE TABLE IF NOT EXISTS will not add them to a
+# database that already exists, so they are applied here, idempotently.
+_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("animals", "first_published_at", "TEXT"),
+    ("generated_content", "review_status", "TEXT NOT NULL DEFAULT 'pending'"),
+    ("generated_content", "reviewed_at", "TEXT"),
+    ("generated_content", "review_note", "TEXT"),
+]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, decl in _MIGRATIONS:
+        existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if existing and column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def init_db(conn: sqlite3.Connection) -> None:
-    conn.executescript(SCHEMA_PATH.read_text())
+    schema = SCHEMA_PATH.read_text()
+    # Tables first (so migrations have something to alter), then views.
+    view_at = schema.index("DROP VIEW IF EXISTS")
+    conn.executescript(schema[:view_at])
+    _migrate(conn)
+    conn.executescript(schema[view_at:])
     conn.commit()
 
 
@@ -36,6 +73,41 @@ def _b(value: Any) -> int | None:
     if value is None:
         return None
     return 1 if value else 0
+
+
+def to_utc_iso(value: Any) -> str | None:
+    """Coerce any timestamp Petfinder sends into UTC ISO-8601 with a colon offset.
+
+    Petfinder returns e.g. '2019-10-07T19:13:01+0000'. SQLite's date functions
+    cannot parse a '+0000' offset and silently return NULL, which would make every
+    tenure calculation NULL on real data. Normalizing at the boundary fixes it once.
+    """
+    if value in (None, ""):
+        return None
+    text = str(value).strip().replace("Z", "+00:00")
+    # '+0000' / '-0500' -> '+00:00' / '-05:00'
+    if len(text) >= 5 and text[-5] in "+-" and text[-4:].isdigit():
+        text = f"{text[:-2]}:{text[-2:]}"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+_SIZE_CANON = {
+    "small": "small", "medium": "medium", "large": "large",
+    "extra large": "xlarge", "extra-large": "xlarge", "xlarge": "xlarge", "x-large": "xlarge",
+}
+
+
+def canonical_size(value: Any) -> str | None:
+    """Petfinder *filters* on 'xlarge' but *returns* 'Extra Large'. Store one spelling."""
+    if not value:
+        return None
+    return _SIZE_CANON.get(str(value).strip().lower(), str(value).strip().lower())
 
 
 def normalize_animal(raw: dict[str, Any]) -> dict[str, Any]:
@@ -62,7 +134,7 @@ def normalize_animal(raw: dict[str, Any]) -> dict[str, Any]:
         "color_secondary": colors.get("secondary"),
         "age": raw.get("age"),
         "gender": raw.get("gender"),
-        "size": raw.get("size"),
+        "size": canonical_size(raw.get("size")),
         "coat": raw.get("coat"),
         "description": raw.get("description"),
         "status": raw.get("status"),
@@ -83,8 +155,8 @@ def normalize_animal(raw: dict[str, Any]) -> dict[str, Any]:
         "contact_postcode": address.get("postcode"),
         "distance_miles": raw.get("distance"),
         "url": raw.get("url"),
-        "published_at": raw.get("published_at"),
-        "status_changed_at": raw.get("status_changed_at"),
+        "published_at": to_utc_iso(raw.get("published_at")),
+        "status_changed_at": to_utc_iso(raw.get("status_changed_at")),
         "raw_json": json.dumps(raw, separators=(",", ":")),
     }
 
@@ -193,14 +265,20 @@ def upsert_animal(conn: sqlite3.Connection, record: dict[str, Any], run_id: int)
     updates = ", ".join(f"{c} = excluded.{c}" for c in cols if c != "animal_id")
 
     conn.execute(
-        f"""INSERT INTO animals ({", ".join(cols)}, first_seen_at, last_seen_at, is_active)
-            VALUES ({placeholders}, ?, ?, 1)
+        f"""INSERT INTO animals ({", ".join(cols)}, first_published_at,
+                                 first_seen_at, last_seen_at, is_active)
+            VALUES ({placeholders}, ?, ?, ?, 1)
             ON CONFLICT(animal_id) DO UPDATE SET
                 {updates},
+                first_published_at = CASE
+                    WHEN animals.first_published_at IS NULL THEN excluded.first_published_at
+                    WHEN excluded.first_published_at IS NULL THEN animals.first_published_at
+                    ELSE MIN(animals.first_published_at, excluded.first_published_at)
+                END,
                 last_seen_at = excluded.last_seen_at,
                 is_active = 1,
                 left_listing_at = NULL""",
-        (*[record[c] for c in cols], now, now),
+        (*[record[c] for c in cols], record.get("published_at"), now, now),
     )
     conn.execute(
         """INSERT INTO animal_snapshots
@@ -270,3 +348,46 @@ def fetch_active(
 
 def rows_to_dicts(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
+
+
+# ----------------------------------------------------------- review workflow
+
+REVIEW_STATES = ("pending", "approved", "rejected")
+
+
+def list_generated(
+    conn: sqlite3.Connection, status: str | None = "pending"
+) -> list[dict[str, Any]]:
+    """Generated copy joined to its animal, newest first, for the review queue."""
+    sql = """SELECT g.*, a.name AS animal_name, a.type AS animal_type,
+                    a.primary_photo, a.url AS animal_url
+               FROM generated_content g
+               LEFT JOIN animals a USING (animal_id)"""
+    params: list[Any] = []
+    if status:
+        sql += " WHERE g.review_status = ?"
+        params.append(status)
+    sql += " ORDER BY g.created_at DESC, g.content_id"
+    return rows_to_dicts(conn.execute(sql, params).fetchall())
+
+
+def set_review(
+    conn: sqlite3.Connection,
+    content_id: int,
+    status: str,
+    note: str | None = None,
+    body: str | None = None,
+) -> None:
+    """Record a human decision. An edited body is saved with the approval."""
+    if status not in REVIEW_STATES:
+        raise ValueError(f"status must be one of {REVIEW_STATES}")
+    if body is not None:
+        conn.execute("UPDATE generated_content SET body = ? WHERE content_id = ?",
+                     (body, content_id))
+    conn.execute(
+        """UPDATE generated_content
+              SET review_status = ?, review_note = ?, reviewed_at = ?
+            WHERE content_id = ?""",
+        (status, note, utcnow(), content_id),
+    )
+    conn.commit()

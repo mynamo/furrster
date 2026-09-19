@@ -2,157 +2,177 @@
 
 Shelter pet matcher and at-risk flagger, built on the [Petfinder API v2](https://www.petfinder.com/developers/v2/docs/).
 
-Two jobs, both borrowed from customer analytics and pointed at shelter animals:
+Customer-lifecycle analytics pointed at shelter animals: listings are accounts,
+days-listed is tenure, leaving the listing is conversion, and "hard to place" is a
+churn-risk segment.
 
-1. **Lifecycle / at-risk analysis.** Pull local listings on a schedule, track how long
-   each animal has been listed, and rank them by how hard they are likely to be to
-   place — with the reasons attached, not just a number.
-2. **Matching and outreach.** Turn an adopter's description of their life into a ranked
-   shortlist with honest caveats, and auto-draft better bios and social copy for the
-   animals the scorer flags.
+1. **Ingest and keep history.** Pull local listings daily, keep an append-only
+   snapshot of every animal on every day. That history is the only way to do
+   lifecycle analysis, because Petfinder only shows what's listed right now.
+2. **Lifecycle analysis.** Kaplan–Meier survival curves by segment, handled properly
+   for animals that were already listed when collection started.
+3. **At-risk flagging.** A transparent 0–100 score with the reasons listed, backtested
+   against what actually happened afterwards.
+4. **Matching and outreach.** Adopter intake → SQL shortlist → Claude ranking with
+   honest caveats; drafted bios and social copy that a person approves before use.
 
-Everything except the two LLM commands runs with no Anthropic key and no network.
+Everything except the two Claude features runs with no API keys and no network.
 
 ---
 
 ## Quick start
 
 ```bash
-git clone https://github.com/mynamo/furrster.git
-cd furrster
-make install                     # venv + dependencies
+git clone https://github.com/mynamo/furrster.git && cd furrster
+make install
 
-cp .env.example .env             # then fill in your Petfinder key/secret
-python scripts/seed_demo.py      # optional: 33 fake animals, no API key needed
-python -m furrster.cli at-risk
+# No Petfinder key yet? Build 90 days of synthetic history and open the app on it:
+make simulate          # writes data/sim.db (never mixed with real data)
+make app-sim           # Streamlit dashboard on the simulated database
+
+# With a key:
+cp .env.example .env   # fill in PETFINDER_KEY / PETFINDER_SECRET
+make ingest            # first real pull into data/furrster.db
+make schedule          # daily 07:15 pull via launchd (macOS)
+make app
 ```
 
-Petfinder keys are free: <https://www.petfinder.com/developers/> → *Get an API key*.
-An Anthropic key (for `match` and `draft`) goes in the same `.env`.
+Petfinder keys: <https://www.petfinder.com/developers/>. The form asks for an
+application name and URL — this repo's GitHub URL works. An Anthropic key (for
+`match` and `draft`) goes in the same `.env`.
 
-## Commands
+## The app
 
-| Command | What it does | Needs a key? |
+`make app` (or `python -m furrster.cli app`) opens five tabs:
+
+| Tab | What it's for |
+|---|---|
+| **Overview** | Listed now, departures in the last 30 days, median days listed, risk mix |
+| **At risk** | Filterable queue with reasons; click a row for the factor breakdown and a *Draft copy* button |
+| **Lifecycle** | Survival curves split by species×size / age / species / shelter; listing-edit effect; scorer backtest |
+| **Match** | Adopter intake form → hard-filter shortlist → optional Claude ranking |
+| **Review queue** | Approve, edit or reject every generated bio/post before it's used |
+
+A yellow banner marks any simulated database so a demo is never mistaken for findings.
+
+## CLI
+
+| Command | What it does | Needs |
 |---|---|---|
-| `init-db` | Create the SQLite schema | no |
-| `ingest --type dog --type cat` | Pull listings, upsert, snapshot, retire departed ones | Petfinder |
-| `orgs` | Pull nearby shelters/rescues | Petfinder |
-| `at-risk --limit 25` | Rank active animals by placement risk, with reasons | no |
-| `export --out data/at_risk.csv` | Flat file for a dashboard or a notebook | no |
-| `stats` | What's in the database, recent runs | no |
-| `match "adopter description" --children --max-size medium` | Ranked shortlist with rationale and concerns | Anthropic |
-| `draft --count 3` | Bios + Instagram/Facebook/X copy for the top at-risk animals | Anthropic |
+| `ingest --type dog --type cat` | Pull, upsert, snapshot, retire departed listings | Petfinder key |
+| `orgs` | Pull nearby shelters/rescues | Petfinder key |
+| `simulate --days 90` | Replay synthetic history through the real ingest path | — |
+| `at-risk --limit 25` | Rank listed animals by risk, with reasons | — |
+| `lifecycle` | Survival by segment, edit effect, scorer backtest | — |
+| `export --out data/at_risk.csv` | Flat file for notebooks / BI tools | — |
+| `stats` | Database contents and recent runs | — |
+| `match "…" --children --max-size medium` | Ranked shortlist with rationale and concerns | Anthropic key |
+| `draft --count 3` | Bios + Instagram/Facebook/X copy for the top at-risk animals | Anthropic key |
+| `app` | Launch the dashboard | — |
 
-```bash
-python -m furrster.cli ingest --type dog --location 94110 --distance 50
-python -m furrster.cli at-risk --limit 10
-python -m furrster.cli match "Second-floor apartment, no yard. I work from home three \
-days a week and run most mornings. First dog of my own, but I grew up with beagles. \
-No kids, no other pets." --type dog --max-size medium --experience some
-python -m furrster.cli draft --count 3
-```
-
-## How it fits together
+## Architecture
 
 ```
-Petfinder API ──► petfinder.py ──► ingest.py ──► SQLite ──► scoring.py ──► CLI / CSV
-   OAuth2          pagination       normalize    3 layers    risk + why        │
-   + retries       + rate care      + upsert                                   │
-                                        │                                      ▼
-                                        └──────────────► matcher.py  ·  bios.py
-                                                         (Claude)      (Claude)
+Petfinder API ─► petfinder.py ─► ingest.py ─► SQLite ─┬─► scoring.py ──► at-risk queue
+ (or simulate.py    OAuth2,        normalize,   3 layers ├─► lifecycle.py ─► survival, backtest
+  via MockTransport) retries,      upsert,               ├─► matcher.py ──► Claude ranking
+                     pagination    snapshot              └─► bios.py ─────► Claude drafts ─► review queue
+                                                                                  │
+                                                       app/streamlit_app.py ◄────┘
 ```
 
 **`petfinder.py`** — OAuth2 client-credentials, token cached and refreshed on 401,
-exponential backoff on 429/5xx, pagination generators with a `max_pages` guard rail.
-Petfinder allows 1,000 requests/day and 50/second; at `limit=100` the default run is
-20 requests.
+backoff on 429/5xx, pagination with a `max_pages` cap. The daily dog+cat pull is
+roughly 20–60 requests against a 1,000/day limit.
 
-**`db.py` / `sql/schema.sql`** — three layers:
+**`db.py` / `sql/schema.sql`** — current-state tables (`animals`, `organizations`), an
+append-only `animal_snapshots` table (one row per animal per pull, with a content
+hash that spots edits), and an `ingest_runs` log. Timestamps and sizes are
+standardized as they come in (see *Bugs the simulator caught*). Idempotent migrations
+upgrade older databases in place.
 
-- `organizations`, `animals` — current state, upserted every run.
-- `animal_snapshots` — append-only, one row per animal per run, with a content hash.
-  This is the only reason lifecycle analysis is possible: Petfinder tells you what is
-  listed *now*, never what changed.
-- `ingest_runs` — the run log, so every snapshot traces back to a pull.
+**Tenure that survives relists.** Petfinder's `published_at` resets when a shelter
+relists an animal. `first_published_at` stores the earliest value ever seen and never
+moves, and `v_active_animals` measures tenure from the earlier of that and our own
+first sighting.
 
-When an animal that was active stops appearing, `mark_departed` sets `is_active = 0`
-and stamps `left_listing_at`. That is the adoption proxy — Petfinder never tells you
-*why* a listing vanished.
+**`simulate.py`** — generates Petfinder-shaped JSON for three fictional shelters over
+N days: arrivals, adoptions at a known per-animal daily rate, relists, and listing
+improvements. It feeds that data through `MockTransport → PetfinderClient →
+ingest_animals` with the clock set to each simulated day, so the production code runs
+unchanged. Each animal's true adoption rate is saved in `sim_ground_truth`.
 
-**`scoring.py`** — a transparent weighted model, not a black box. Every animal gets a
-0–100 score plus the list of factors that produced it, so a shelter coordinator can
-disagree with it out loud. Two families of signal:
+**`lifecycle.py`** — Kaplan–Meier with *delayed entry*: an animal first seen on day 40
+of its listing only counts as at risk from day 40 on. Leaving that out is the most
+common mistake with this kind of data. On the simulated data it moves the median from
+47 days (naive) to 30 (correct), because animals caught partway through a listing are
+more likely to be the ones that stay. Also includes a listing-edit comparison (photos
+added vs. untouched animals of the same tenure) and a backtest for the scorer.
 
-- *Tenure* — days listed, scored against the animal's own cohort (species × size
-  class). Cohorts below `MIN_COHORT_N = 10` fall back to species, then to the whole
-  population, because "older than 50% of my two peers" is noise.
-- *Friction* — senior/adult age, large size, special needs, restrictions on children
-  or other pets, thin write-ups, missing photos, hard-to-place tags.
+**`scoring.py`** — weighted factors with the reasons listed: tenure against the
+animal's cohort (falling back to species, then to all animals, when a cohort has fewer
+than 10), plus age, size, special needs, restrictions, thin write-ups, missing photos,
+and hard-to-place tags. The listed reasons put things a shelter can change ahead of
+tenure.
 
-Weights live in one dict at the top of the file. Tune them, re-run, diff the ranking.
+**`matcher.py` / `bios.py`** — hard constraints are applied in SQL before Claude sees
+anything. Unknown stays unknown throughout (no data on cats ≠ bad with cats). The bio
+prompt forbids invented facts and urgency framing, and also returns `unknowns_to_fill`:
+what the shelter should add to the listing.
 
-**`matcher.py`** — SQL narrows on hard constraints first (species, size, kid/pet
-safety), then Claude ranks the shortlist on temperament and lifestyle fit. The model
-never sees an animal that failed a hard filter, is told to use only the supplied
-records, and must name a concern for every match. `NULL` is preserved as *unknown*
-throughout: an animal with no data on cats is a candidate for a cat owner, but the
-model is told the field is unknown rather than shown a `false`.
+## What the simulation shows (and doesn't)
 
-**`bios.py`** — drafts a listing bio, a one-line hook, and three channel-specific
-posts. The prompt's hard rules: no invented facts, unknowns written around rather
-than filled in, listed restrictions stated plainly, no urgency theatre. It also
-returns `unknowns_to_fill` — what the shelter should add to the listing to make the
-animal easier to place, which is often the highest-leverage output.
+On 90 simulated days (455 animals, 3 shelters):
 
-Every generation is stored in `generated_content` with its `prompt_version` and model,
-so you can A/B two prompts against real outcomes later.
+| Check | Result | Reading |
+|---|---|---|
+| Median days listed, truncation-aware vs. naive | 30 vs. 47 | Ignoring delayed entry overstates the headline number by more than half |
+| Scorer backtest AUC (as of 45 days ago, still listed 30 days later) | 0.56 | Better than a coin flip, but not by much |
+| Same, with the true adoption rate as the score | 0.75 | The best any scorer could do here; adoption stays random even when the odds are known |
+| Rank correlation of score with the true rate | −0.51 | The score gets the ordering roughly right… |
+
+…but it leaves a large share of the possible accuracy unused. The weights are
+hand-set, and half the points go to tenure, which says little about a single animal
+when adoption odds don't change with time. **Fitting the weights to observed outcomes
+is the next piece of work** (see `PLAN.md`). Note that the simulation's multipliers
+are ones I set, so fitting to simulated data would just recover my own assumptions.
+The fitting has to happen on real history.
+
+## Bugs the simulator caught
+
+These passed the hand-written test data and would have broken on real data:
+
+- Petfinder timestamps end in `+0000`. SQLite's date functions can't read that offset
+  and quietly return NULL, so **every** tenure would have been NULL. They're now
+  converted to UTC ISO format as they come in.
+- The API filters with `size=xlarge` but returns `"Extra Large"`, so the scorer's
+  large-size check never fired for the biggest dogs. Sizes are now stored in one
+  standard form.
+- Streamlit's data cache ignored which database was open, so switching `FURRSTER_DB`
+  showed the previous database's data.
 
 ## Testing
 
 ```bash
-make test        # 24 tests, no network, no API keys
+make test   # 39 tests, no network, no keys
 ```
 
-The Petfinder client is exercised through `httpx.MockTransport` against recorded-shape
-fixtures that include the awkward cases: a null-heavy record, a zero-photo senior with
-every restriction set, a three-day-old puppy, an animal with no `published_at`.
+Covers the HTTP client (MockTransport), ingest edge cases, relist handling,
+migrations, the scorer, the matcher (with a fake LLM), Kaplan–Meier against a
+hand-worked example and a large simulated sample where the true median is known,
+the review workflow, and a headless run of the Streamlit app (`AppTest`) through every tab.
 
 ## Known limitations
 
-- `days_listed` comes from `published_at`, which **resets when a shelter relists an
-  animal**. Read it as listing tenure, not time in care. Once you have a few weeks of
-  snapshots, `MIN(observed_at)` per animal is the more honest measure.
-- A listing disappearing is not the same as an adoption. It could be a transfer, a
-  death, or a shelter cleaning up its Petfinder account.
-- Petfinder coverage is shelter-dependent. Organizations that manage listings badly
-  look like organizations with hard-to-place animals. Segment by organization before
-  drawing conclusions.
-- The risk weights are informed priors, not fitted coefficients. Fitting them needs
-  outcome data — see Phase 5 in `PLAN.md`.
+- A listing disappearing is not the same as an adoption (it could be a transfer, a
+  death, or account cleanup).
+- Coverage differs by shelter. A shelter that keeps its listings poorly will look like
+  one with hard-to-place animals, so compare within a shelter before comparing across.
+- The listing-edit effect is observational. Shelters choose which listings to improve.
+- Scorer weights are hand-set and not yet fitted (see above).
 
-## Layout
+## Data use
 
-```
-furrster/
-├── furrster/
-│   ├── config.py      # env/.env settings, explicit errors when keys are missing
-│   ├── petfinder.py   # API v2 client: auth, retries, pagination
-│   ├── db.py          # schema bootstrap, normalization, upserts, snapshots
-│   ├── ingest.py      # pull → normalize → store → retire departed
-│   ├── scoring.py     # at-risk / hard-to-place model
-│   ├── matcher.py     # SQL shortlist + Claude ranking
-│   ├── bios.py        # Claude-drafted bios and social copy
-│   └── cli.py         # python -m furrster.cli
-├── sql/schema.sql
-├── scripts/seed_demo.py
-├── tests/             # fixtures + 24 offline tests
-└── PLAN.md            # phased build plan
-```
-
-## Licence & data use
-
-Petfinder data is subject to the [Petfinder API terms of use](https://www.petfinder.com/developers/api-terms/).
-Don't republish shelter contact details in bulk, and attribute listings back to
-Petfinder. LLM-drafted copy is a **draft** — a person at the shelter approves it
-before it goes anywhere near an adopter.
+Petfinder data is subject to the [API terms](https://www.petfinder.com/developers/api-terms/).
+Don't republish shelter contact details in bulk. Generated copy is a draft, and a
+person approves it before it's used.

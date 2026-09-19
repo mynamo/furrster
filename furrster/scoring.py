@@ -83,8 +83,18 @@ class RiskScore:
         return "ok"
 
     def summary(self) -> str:
-        top = sorted(self.factors, key=lambda f: -f.points)[:3]
-        return "; ".join(f.detail for f in top)
+        """Tenure in one phrase, then the two biggest *actionable* reasons.
+
+        Tenure is usually the largest contributor, but it isn't something a shelter
+        can change — the friction factors (photos, write-up, restrictions) are.
+        """
+        tenure = {"tenure_percentile", "tenure_absolute"}
+        pct = next((f for f in self.factors if f.name == "tenure_percentile"), None)
+        rest = sorted((f for f in self.factors if f.name not in tenure),
+                      key=lambda f: -f.points)[:2]
+        parts = ([f"{self.days_listed}d, {pct.detail.replace('listed ', '')}"]
+                 if pct else [f"{self.days_listed} days listed"])
+        return "; ".join(parts + [f.detail for f in rest])
 
     def to_dict(self) -> dict[str, Any]:
         return {

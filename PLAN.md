@@ -6,100 +6,134 @@ tenure, adoption is conversion, and "hard to place" is a churn-risk segment. Eve
 phase below has an analytics analogue named in italics, because that is the thing a
 hiring manager is actually reading for.
 
-Phase 1 is done and in this repo. Phases 2–6 are the roadmap.
+## Status (Sept 2026)
+
+| Phase | State |
+|---|---|
+| 1 · Ingestion + warehouse | ✅ shipped |
+| 2 · Daily pull | ✅ built (`make schedule`) — **switch on once the Petfinder key arrives** |
+| 3 · Lifecycle analytics | ✅ survival curves, edit effect, backtest · ⏳ weight fitting |
+| 4 · Matching UI | ✅ Streamlit tab · ⏳ feedback loop, human-agreement eval |
+| 5 · Outreach | ✅ review queue · ⏳ prompt A/B against outcomes |
+| 6 · Portfolio surface | ✅ dashboard · ⏳ write-up |
+
+**Next up, in order:**
+
+1. **Get the key → `make ingest` → `make schedule`.** History only builds up one day at
+   a time. Every day without the schedule running is a day of data that can't be
+   collected later.
+2. **First real-data shakedown.** Expect more mismatches between how the API
+   documents its data and what it actually sends (the simulator caught two already).
+   Compare `stats` against what you see on petfinder.com for one shelter.
+3. **Fit the scorer (3b below).** It's the biggest known gap: backtest AUC 0.56
+   against a ceiling of 0.75 on simulated data.
+4. **Write-up (Phase 6)** once there are ~4 weeks of real snapshots.
 
 ---
 
-## Phase 1 — Ingestion and local warehouse ✅ *(shipped)*
+## Phase 1 — Ingestion and local warehouse ✅
 
 *Analogue: event pipeline + slowly-changing dimension.*
 
-- OAuth2 client for Petfinder v2, with token refresh, backoff, and pagination.
-- SQLite warehouse: current-state dimensions, an append-only snapshot fact table, and
-  a run log.
-- Departed-listing sweep as an adoption proxy.
-- Transparent at-risk scoring with per-factor attribution and cohort fallback.
-- CLI, CSV export, 24 offline tests.
-
-**Why the snapshot table matters:** Petfinder is a *current state* API. It will never
-tell you that a dog's description changed or that its photos were removed. Without
-`animal_snapshots`, every lifecycle question in phases 3–5 is unanswerable, and you
-cannot retrofit history. Start collecting on day one even if you don't use it for a month.
+OAuth2 client, three-layer SQLite warehouse (current state + append-only snapshots +
+run log), departed-listing sweep as the adoption proxy, transparent scoring, CLI,
+offline tests.
 
 ---
 
-## Phase 2 — Make the pull continuous *(1 evening)*
+## Phase 2 — Continuous pull ✅ (waiting on key)
 
 *Analogue: scheduled ELT.*
 
-- `cron` / `launchd` entry: `ingest --type dog --type cat` once daily, off-peak.
-  A daily dog+cat pull at `limit=100` across 50 miles is roughly 20–60 requests
-  against a 1,000/day budget.
-- Log each run to `ingest_runs` (already wired) and alert on `status != 'ok'`.
-- Add `--organization` so you can follow two or three specific shelters closely
-  rather than an entire metro.
-- Backfill orgs weekly (`orgs`), not daily — they barely change.
-
-**Checkpoint:** two weeks of daily snapshots. Until then, every tenure number in the
-system comes from `published_at` and inherits the relist problem.
+- `scripts/daily_ingest.sh` + `launchd/` template, installed with `make schedule`
+  (daily 07:15; if the Mac is asleep, it runs on wake). Logs go to
+  `data/logs/ingest.log`. `make schedule-status` shows the last run.
+- The script exits cleanly if `.env` has no key yet, so it's safe to install now.
+- `ingest` refuses to write into a simulated database.
+- Still to do: `--organization` to follow two or three shelters closely; alert
+  when a run fails.
 
 ---
 
-## Phase 3 — Replace proxies with measured lifecycle *(1 weekend)*
+## Phase 2½ — Simulator ✅
 
-*Analogue: cohort retention curves.*
+*Analogue: a staging environment with synthetic traffic.*
 
-Once the snapshot table has real history:
+Added because the key isn't here yet and every later phase needs history.
+`simulate.py` replays N days through the real ingest path with a pinned clock and
+records each animal's true adoption rate. It has already paid off: it caught the
+`+0000` timestamp bug (every tenure would have been NULL on real data) and the
+`Extra Large` / `xlarge` mismatch before either reached real data.
 
-- Compute true observed tenure: `MIN(observed_at)` → `left_listing_at`, instead of
-  trusting `published_at`.
-- Build survival curves per cohort — Kaplan–Meier is the right tool, animals still
-  listed are right-censored, and `lifelines` does it in ten lines.
-- Answer the questions that make the project interesting:
-  - Median days-to-adoption by age, size, species, breed group, colour.
-  - Does adding photos or lengthening a description measurably shorten tenure?
-    (The `content_hash` column already detects those edits — this becomes a natural
-    experiment.)
-  - Which organizations place animals faster than their animal mix predicts?
-- Swap the hand-set `WEIGHTS` in `scoring.py` for coefficients fitted against
-  observed tenure. Keep the per-factor attribution — an explainable model that a
-  shelter volunteer can argue with beats a slightly better AUC.
+Rule: simulated numbers validate the **pipeline and the method**, never findings
+about shelters. The simulation's multipliers are my assumptions.
 
 ---
 
-## Phase 4 — Matching, in front of a human *(1 weekend)*
+## Phase 3 — Measured lifecycle ✅ / 3b fitting ⏳
+
+*Analogue: cohort retention curves + churn model.*
+
+Done (`lifecycle.py`, Lifecycle tab):
+
+- Relist-proof tenure (`first_published_at`, never overwritten).
+- Kaplan–Meier with delayed entry. Animals still listed count as censored, and
+  animals already listed when collection began count as at risk only from when we
+  first saw them. On simulated data the naive median is 47 days and the correct one 30.
+- Listing-edit comparison: animals that gained photos vs. untouched animals of the
+  same tenure, followed over the same window. Observational only.
+- Scorer backtest: rewind N days, score what was knowable then, check who was still
+  listed 30 days later. Reports AUC, and on simulated data the best achievable AUC
+  and the correlation with the true rate.
+
+**3b — fit the weights (next):**
+
+- Model: a Poisson regression of departures per animal-day on the scorer's factors,
+  with tenure as an offset or spline. This is equivalent to a piecewise-exponential
+  survival model. It can be fit with numpy Newton–Raphson in about 40 lines, or with
+  `statsmodels` if a new dependency is acceptable.
+- Turn the coefficients into suggested `WEIGHTS` and keep the per-factor reasons.
+  A model a shelter coordinator can argue with is worth more than a slightly higher AUC.
+- Fit on **real** history only (≥4–6 weeks). Use the simulated data to check that the
+  fitting code recovers the multipliers the simulator was given, which makes it a
+  good unit test.
+- Tenure currently gets 50 of 100 points. If real data shows the adoption rate
+  doesn't change much with time listed, most of that weight should move to the
+  friction factors.
+
+---
+
+## Phase 4 — Matching in front of a human ✅ UI / ⏳ evaluation
 
 *Analogue: propensity scoring + segmentation.*
 
-- The CLI `match` command is the engine; put a thin Streamlit or FastAPI form on it so
-  a volunteer can use it at an adoption event.
-- Add a feedback loop: record whether the counselor forwarded the match, and whether
-  it led to a meet-and-greet. That table is what turns this from a demo into a system.
-- Precompute a coarse compatibility matrix in SQL for the common adopter archetypes
-  (apartment/no pets, family with toddlers, experienced large-dog home) so the LLM
-  call is only needed for the interesting cases.
-- Evaluate honestly: hold out 30 real adopter descriptions, have a human rank the
-  shortlist blind, and measure agreement. Report the number even if it's mediocre.
+- ✅ Match tab: intake form → SQL shortlist (unknown compatibility kept, not
+  dropped) → Claude ranking with a named concern for each pick.
+- ⏳ Feedback: record whether a counselor forwarded a match and whether it led to a
+  meet-and-greet. That table is what turns the demo into a working system.
+- ⏳ Evaluation: 30 held-out adopter descriptions, a person ranks the shortlist blind,
+  measure agreement. Report the result even if it's mediocre.
 
 ---
 
-## Phase 5 — Outreach that you can measure *(ongoing)*
+## Phase 5 — Outreach you can measure ✅ queue / ⏳ experiment
 
 *Analogue: lifecycle marketing + creative A/B testing.*
 
-- Weekly job: score, take the top N `critical` animals, draft copy, drop it in a
-  review queue. **Never auto-post.** A human at the shelter approves every word.
-- `generated_content.prompt_version` already exists — write two prompts, alternate
-  them, and compare tenure change after publication.
-- Track the `unknowns_to_fill` output separately. "Twelve of your long-listed dogs
-  have no photos and no cat/dog compatibility data" is often worth more to a shelter
-  than any bio you can write.
-- Measure the intervention, not the copy: days-listed before vs. after the refresh,
-  against a matched control group of animals you didn't touch.
+- ✅ Review queue: every draft is `pending` until a person approves, edits or
+  rejects it (`review_status`, `reviewed_at`, `review_note`). Nothing is posted
+  automatically.
+- ✅ `prompt_version` is stored with every generation.
+- ⏳ Weekly job: score → draft the top N critical animals → queue.
+- ⏳ Measure the intervention, not the copy: compare days listed before and after a
+  refresh against a matched control group, using the same machinery as the
+  listing-edit comparison.
+- ⏳ `unknowns_to_fill` report per shelter. It's often the most useful thing to
+  show a shelter.
 
 ---
 
-## Phase 6 — The portfolio surface *(1 weekend)*
+## Phase 6 — The portfolio surface ✅ dashboard / ⏳ write-up
 
 *Analogue: the exec dashboard.*
 
@@ -116,9 +150,8 @@ Once the snapshot table has real history:
 
 ## Sequencing notes
 
-- **Phase 2 before everything else.** History accrues in wall-clock time; you cannot
-  compress it later. Get the cron job running tonight even if you touch nothing else
-  for a month.
+- **Phase 2 before everything else.** History only builds up one day at a time and
+  can't be compressed. `make schedule` the day the key arrives.
 - Phases 3 and 4 are independent — do whichever is more fun first.
 - Phase 5 needs Phase 3's baseline to be worth anything. Without a tenure baseline you
   cannot tell whether a rewritten bio helped.

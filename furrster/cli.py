@@ -19,6 +19,9 @@ def _log(verbose: bool) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(levelname)s %(name)s: %(message)s",
     )
+    if not verbose:
+        # One line per HTTP request drowns real output (and a simulation makes ~200).
+        logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def _table(rows: list[dict[str, Any]], columns: list[str]) -> str:
@@ -45,8 +48,23 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _is_simulated(settings) -> bool:
+    if not settings.db_path.exists():
+        return False
+    conn = db.connect(settings.db_path)
+    try:
+        return bool(conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'sim_ground_truth'").fetchone())
+    finally:
+        conn.close()
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     settings = load_settings()
+    if _is_simulated(settings):
+        print(f"{settings.db_path} holds simulated history. Refusing to add real "
+              "Petfinder data to it — point FURRSTER_DB at a different file.")
+        return 1
     types = args.type or [None]
     total = 0
     for animal_type in types:
@@ -252,6 +270,83 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_simulate(args: argparse.Namespace) -> int:
+    from .simulate import simulate
+
+    settings = load_settings()
+    if settings.db_path.exists() and not args.force:
+        print(
+            f"{settings.db_path} already exists. Simulated history must not be mixed "
+            "with real pulls. Re-run with --force to add to it, or point FURRSTER_DB "
+            "at a separate file (e.g. FURRSTER_DB=data/sim.db)."
+        )
+        return 1
+    print(f"Simulating {args.days} days of daily pulls into {settings.db_path} …")
+    logging.getLogger("furrster.ingest").setLevel(logging.WARNING)
+    r = simulate(settings, days=args.days, seed=args.seed,
+                 initial_population=args.population)
+    print(
+        f"{r.animals_total} animals, {r.adopted} left the listing, {r.still_listed} still "
+        f"listed, {r.relists} relists, {r.edits} listing edits."
+    )
+    return 0
+
+
+def cmd_lifecycle(args: argparse.Namespace) -> int:
+    from . import lifecycle as L
+
+    settings = load_settings()
+    conn = db.connect(settings.db_path)
+    db.init_db(conn)
+    spells = L.load_spells(conn)
+    if spells.empty or spells["event"].sum() == 0:
+        print("Not enough history yet: lifecycle analysis needs animals to have left the "
+              "listing. Keep the daily ingest running (or try `simulate`).")
+        return 1
+
+    km = L.kaplan_meier(spells)
+    trunc = int((spells["entry_day"] > 3).sum())
+    print(f"\n{len(spells)} listings observed, {int(spells['event'].sum())} departed, "
+          f"{trunc} already listed when collection began (handled as delayed entry).")
+    med = L.median_days(km)
+    print(f"Median days on the listing: {'not reached yet' if med is None else round(med)}")
+    print(f"Still listed after 30 days: {L.survival_at(km, 30):.0%}   "
+          f"after 60: {L.survival_at(km, 60):.0%}")
+
+    for col in ("cohort", "age"):
+        print(f"\nBy {col}:")
+        print(L.summarize(spells, col).to_string(index=False))
+
+    eff = L.listing_edit_effect(conn).to_dict()
+    print("\nListing improvements (photo count went up), 30-day window vs. untouched animals:")
+    print(f"  {eff['edited_animals']} edited listings, departure rate "
+          f"{eff['edited_daily_departure_rate']}/day vs {eff['control_daily_departure_rate']}/day"
+          f" -> ratio {eff['rate_ratio']}  (observational, not causal)")
+
+    bt = L.evaluate_scorer(conn, as_of_days_ago=args.backtest_days, horizon_days=30)
+    print(f"\nScorer backtest (as of {bt.get('as_of', '-')}, 30-day horizon):")
+    if "error" in bt:
+        print(f"  {bt['error']}")
+    else:
+        print(f"  AUC {bt['auc']} on {bt['animals_scored']} animals")
+        if "oracle_auc" in bt:
+            print(f"  ceiling (true-hazard oracle) {bt['oracle_auc']}, "
+                  f"rank correlation with true hazard {bt['spearman_vs_true_hazard']}")
+        for b in bt["by_band"]:
+            print(f"  {b['band']:<9} {int(b['animals']):>4} animals  "
+                  f"{b['share_still_listed']:.0%} still listed")
+    conn.close()
+    return 0
+
+
+def cmd_app(args: argparse.Namespace) -> int:
+    import subprocess
+    from pathlib import Path
+
+    app = Path(__file__).resolve().parent.parent / "app" / "streamlit_app.py"
+    return subprocess.call([sys.executable, "-m", "streamlit", "run", str(app)])
+
+
 # -------------------------------------------------------------------- parser
 
 
@@ -306,6 +401,19 @@ def build_parser() -> argparse.ArgumentParser:
     ex = sub.add_parser("export", help="CSV of active animals with risk scores")
     ex.add_argument("--out", default="data/at_risk.csv")
     ex.set_defaults(func=cmd_export)
+
+    sim = sub.add_parser("simulate", help="replay N days of synthetic shelter history")
+    sim.add_argument("--days", type=int, default=90)
+    sim.add_argument("--seed", type=int, default=42)
+    sim.add_argument("--population", type=int, default=140)
+    sim.add_argument("--force", action="store_true")
+    sim.set_defaults(func=cmd_simulate)
+
+    lc = sub.add_parser("lifecycle", help="survival curves, edit effect, scorer backtest")
+    lc.add_argument("--backtest-days", type=int, default=45)
+    lc.set_defaults(func=cmd_lifecycle)
+
+    sub.add_parser("app", help="launch the Streamlit dashboard").set_defaults(func=cmd_app)
 
     return p
 
