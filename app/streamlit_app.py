@@ -15,13 +15,14 @@ import sys
 from pathlib import Path
 
 import altair as alt
+import numpy as np
 import pandas as pd
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from furrster import db, lifecycle as L  # noqa: E402
+from furrster import db, fitting, lifecycle as L  # noqa: E402
 from furrster.config import load_settings  # noqa: E402
 from furrster.matcher import AdopterProfile, shortlist  # noqa: E402
 from furrster.scoring import score_population  # noqa: E402
@@ -48,7 +49,7 @@ def _conn():
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def load_active(db_path: str) -> pd.DataFrame:
+def load_active(db_path: str, model_version: float = 0.0) -> pd.DataFrame:
     conn = _conn()
     rows = db.rows_to_dicts(db.fetch_active(conn))
     conn.close()
@@ -60,7 +61,25 @@ def load_active(db_path: str) -> pd.DataFrame:
     df["band"] = df["animal_id"].map(lambda i: scored[i].band)
     df["why"] = df["animal_id"].map(lambda i: scored[i].summary())
     df["factors"] = df["animal_id"].map(lambda i: scored[i].to_dict()["factors"])
+
+    model = fitting.load(db_path)
+    if model is not None:
+        v2 = {s["animal_id"]: s for s in fitting.score_rows(model, rows)}
+        df["v2_score"] = df["animal_id"].map(lambda i: round(v2[i]["score"], 1))
+        df["v2_band"] = df["v2_score"].map(fitting.band)
+        df["v2_why"] = df["animal_id"].map(lambda i: fitting.explain(v2[i]["factors"]))
+        df["v2_factors"] = df["animal_id"].map(lambda i: v2[i]["factors"])
     return df.sort_values("risk_score", ascending=False)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_model_table(db_path: str, model_version: float = 0.0) -> tuple[pd.DataFrame, dict] | None:
+    model = fitting.load(db_path)
+    if model is None:
+        return None
+    meta = {"events": model.n_events, "animals": model.n_animals, "rows": model.n_rows,
+            "fitted_at": model.fitted_at, "simulated": model.simulated, "notes": model.notes}
+    return model.table(), meta
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -163,6 +182,33 @@ def factor_chart(factors: list[dict]) -> alt.Chart:
     ).properties(height=max(90, 30 * len(df)))
 
 
+def rate_ratio_chart(table: pd.DataFrame) -> alt.Chart:
+    """Dot + 95% CI on a log scale; 1.0 = no effect. Single series, so no legend."""
+    t = table[table["key"] != "log_tenure"].copy()
+    t["direction"] = np.where(t["ci_high"] < 1, "slower",
+                              np.where(t["ci_low"] > 1, "faster", "unclear"))
+    order = t.sort_values("rate_ratio")["factor"].tolist()
+    x = alt.X("rate_ratio:Q", title="Rate of leaving the listing (×, log scale)",
+              scale=alt.Scale(type="log", domain=[0.15, 4]),
+              axis=alt.Axis(values=[0.25, 0.5, 1, 2, 4], format="~g", gridColor=GRID,
+                            domain=False))
+    y = alt.Y("factor:N", sort=order, title=None, axis=alt.Axis(labelLimit=320))
+    base = alt.Chart(t).encode(y=y)
+    ci = base.mark_rule(color=SERIES[0], strokeWidth=2).encode(
+        x=alt.X("ci_low:Q", scale=alt.Scale(type="log", domain=[0.15, 4])), x2="ci_high:Q")
+    dots = base.mark_point(filled=True, size=90, color=SERIES[0],
+                           stroke="#fcfcfb", strokeWidth=2).encode(
+        x=x,
+        tooltip=[alt.Tooltip("factor:N", title="Factor"),
+                 alt.Tooltip("rate_ratio:Q", title="Rate ratio", format=".2f"),
+                 alt.Tooltip("ci_low:Q", title="95% CI low", format=".2f"),
+                 alt.Tooltip("ci_high:Q", title="95% CI high", format=".2f"),
+                 alt.Tooltip("direction:N", title="Reads as")])
+    one = alt.Chart(pd.DataFrame({"x": [1.0]})).mark_rule(
+        color=INK_MUTED, strokeDash=[3, 3]).encode(x=alt.X("x:Q", scale=alt.Scale(type="log")))
+    return (one + ci + dots).properties(height=alt.Step(26))
+
+
 def band_label(band: str) -> str:
     return f"{BAND_ICON[band]} {band}"
 
@@ -170,8 +216,11 @@ def band_label(band: str) -> str:
 # --------------------------------------------------------------------- header
 
 DB = str(settings.db_path)
+# Part of the cache key, so running `fit` shows up without waiting for the TTL.
+_mp = fitting.model_path(DB)
+MODEL_V = _mp.stat().st_mtime if _mp.exists() else 0.0
 meta = load_meta(DB)
-active = load_active(DB)
+active = load_active(DB, MODEL_V)
 
 left, right = st.columns([4, 1])
 with left:
@@ -245,6 +294,19 @@ with tab_overview:
 # -------------------------------------------------------------------- at risk
 
 with tab_risk:
+    has_v2 = "v2_score" in active.columns
+    scorer = st.radio(
+        "Scorer", ["Fitted model", "Rules (v1)"] if has_v2 else ["Rules (v1)"],
+        horizontal=True,
+        help="Fitted: % chance the animal is still listed in 30 days, learned from "
+             "observed departures (`furrster.cli fit`). Rules: hand-set points, 0–100.")
+    fitted = scorer == "Fitted model"
+    if not has_v2:
+        st.caption("Run `python -m furrster.cli fit` once there's enough history to "
+                   "switch to the fitted model.")
+    if fitted:
+        active = active.assign(risk_score=active["v2_score"], band=active["v2_band"],
+                               why=active["v2_why"])
     f1, f2, f3 = st.columns([1, 2, 1])
     types = sorted(active["type"].dropna().unique())
     pick_types = f1.multiselect("Type", types, default=types)
@@ -271,7 +333,8 @@ with tab_risk:
         column_config={
             "animal_id": None,
             "risk_score": st.column_config.ProgressColumn(
-                "Risk", min_value=0, max_value=100, format="%d"),
+                "Still listed in 30d" if fitted else "Risk", min_value=0, max_value=100,
+                format="%d%%" if fitted else "%d"),
             "days_listed": st.column_config.NumberColumn("Days", format="%d"),
             "photo_count": st.column_config.NumberColumn("Photos"),
             "name": "Name", "band": "Band", "type": "Type", "age": "Age",
@@ -292,7 +355,8 @@ with tab_risk:
                 st.image(row["primary_photo"], width="stretch")
             st.markdown(f"### {row['name']}")
             st.markdown(
-                f"{band_label(row['band'])} · **{row['risk_score']:.0f}/100** · "
+                f"{band_label(row['band'])} · **{row['risk_score']:.0f}"
+                f"{'% still listed in 30d' if fitted else '/100'}** · "
                 f"{int(row['days_listed'])} days listed"
                 + (" · relisted" if row.get("relisted") else "")
             )
@@ -304,7 +368,19 @@ with tab_risk:
                 f"{k} {'✓' if v == 1 else '✗' if v == 0 else '?'}" for k, v in known.items()))
         with b:
             st.markdown("**Why it scored this way**")
-            st.altair_chart(factor_chart(row["factors"]), width="stretch")
+            if fitted:
+                contrib = pd.DataFrame(row["v2_factors"])
+                if contrib.empty:
+                    st.caption("Nothing about this animal slows adoption in the model.")
+                else:
+                    contrib = contrib.rename(columns={"label": "factor"}).assign(
+                        ci_low=lambda d: d["rate_ratio"], ci_high=lambda d: d["rate_ratio"],
+                        key=lambda d: d["name"])
+                    st.altair_chart(rate_ratio_chart(contrib), width="stretch")
+                    st.caption("Each dot: how much this factor changes the rate at which "
+                               "similar animals leave the listing. Left of 1 = slower.")
+            else:
+                st.altair_chart(factor_chart(row["factors"]), width="stretch")
             if settings.anthropic_api_key:
                 if st.button("✍️ Draft bio & social copy", key=f"draft-{row['animal_id']}"):
                     from furrster.bios import draft_for_animal
@@ -355,6 +431,24 @@ with tab_life:
                     "Still listed at 60 days", format="percent"),
             })
 
+        st.subheader("What slows adoption down")
+        fitted_tbl = load_model_table(DB, MODEL_V)
+        if fitted_tbl is None:
+            st.info("Run `python -m furrster.cli fit` to estimate these from the data.")
+        else:
+            tbl, fm = fitted_tbl
+            st.altair_chart(rate_ratio_chart(tbl), width="stretch")
+            tenure = tbl.set_index("key").loc["log_tenure"]
+            st.caption(
+                f"Poisson rate model on {fm['rows']:,} animal-days, {fm['events']} "
+                f"departures. Lines are 95% intervals; a line crossing 1 means the data "
+                f"can't tell. Time on the listing itself: ×{tenure['rate_ratio']:.2f} per "
+                f"log-day (95% CI {tenure['ci_low']:.2f}–{tenure['ci_high']:.2f})."
+                + (" Simulated data: this recovers the simulator's assumptions."
+                   if fm["simulated"] else ""))
+            for note in fm["notes"]:
+                st.caption(f"⚠️ {note}")
+
         st.subheader("Do listing improvements help?")
         eff = load_edit_effect(DB)
         e1, e2, e3 = st.columns(3)
@@ -377,18 +471,20 @@ with tab_life:
             st.info(bt["error"])
         else:
             b1, b2, b3 = st.columns(3)
-            b1.metric("AUC (still listed after 30 days)", bt["auc"],
+            b1.metric("AUC · rules v1", bt["auc"],
                       help="0.5 = coin flip. Probability a randomly chosen animal that "
                            "was still waiting outscored one that had left.")
+            b2.metric("AUC · fitted v2", bt["auc_fitted"] or "—",
+                      help="Fitted only on data from before the as-of date, so it "
+                           "never sees the outcomes it's graded on.")
             if "oracle_auc" in bt:
-                b2.metric("Ceiling: true-hazard oracle", bt["oracle_auc"],
+                b3.metric("Ceiling · true-hazard oracle", bt["oracle_auc"],
                           help="Only available on simulated data, where the true "
                                "adoption odds are known. Adoption is random even with "
                                "perfect knowledge, so this is well below 1.0.")
-                b3.metric("Rank correlation with true hazard",
-                          bt["spearman_vs_true_hazard"],
-                          help="Negative is good: higher risk score ↔ lower true "
-                               "chance of adoption.")
+            if bt.get("fitted_note"):
+                st.caption(f"Fitted v2: {bt['fitted_note']}")
+            st.caption("Share still listed 30 days later, by rules-v1 band:")
             st.dataframe(pd.DataFrame(bt["by_band"]).assign(
                 band=lambda d: d["band"].map(band_label)),
                 hide_index=True, width="stretch",

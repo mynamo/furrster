@@ -28,6 +28,7 @@ make install
 
 # No Petfinder key yet? Build 90 days of synthetic history and open the app on it:
 make simulate          # writes data/sim.db (never mixed with real data)
+FURRSTER_DB=data/sim.db python -m furrster.cli fit   # learn risk weights from it
 make app-sim           # Streamlit dashboard on the simulated database
 
 # With a key:
@@ -62,8 +63,9 @@ A yellow banner marks any simulated database so a demo is never mistaken for fin
 | `ingest --type dog --type cat` | Pull, upsert, snapshot, retire departed listings | Petfinder key |
 | `orgs` | Pull nearby shelters/rescues | Petfinder key |
 | `simulate --days 90` | Replay synthetic history through the real ingest path | — |
-| `at-risk --limit 25` | Rank listed animals by risk, with reasons | — |
+| `at-risk --limit 25` | Rank listed animals by risk, with reasons (fitted model if present) | — |
 | `lifecycle` | Survival by segment, edit effect, scorer backtest | — |
+| `fit` | Fit risk weights to observed departures; `at-risk` and the app switch to it | — |
 | `export --out data/at_risk.csv` | Flat file for notebooks / BI tools | — |
 | `stats` | Database contents and recent runs | — |
 | `match "…" --children --max-size medium` | Ranked shortlist with rationale and concerns | Anthropic key |
@@ -115,6 +117,27 @@ than 10), plus age, size, special needs, restrictions, thin write-ups, missing p
 and hard-to-place tags. The listed reasons put things a shelter can change ahead of
 tenure.
 
+**`fitting.py` — the fitted scorer (v2).** A Poisson regression on the animal-day
+table: one row per animal per interval between two pulls, with an outcome of
+1 if it was gone at the next pull. This is the discrete-time version of a
+piecewise-exponential survival model. It's fit by penalized Newton–Raphson in numpy
+(no scipy/statsmodels). The coefficients are *rate ratios*, e.g. "seniors leave the
+listing at 0.41× the rate of otherwise-similar adults", each with a 95% interval. The
+v2 score is the **chance the animal is still listed 30 days from now**, so it's an
+actual probability rather than a points total. The reasons are the factors slowing
+this animal down, each with its multiplier. Some details:
+
+- Pulls are chained per slice (e.g. dog pulls with dog pulls), so a dog-only pull
+  followed by a cat-only pull doesn't make every dog look adopted.
+- `log(1 + days listed)` is a feature, so the data decides whether time on the
+  listing matters in itself. In the simulation it correctly comes out at ×1.00.
+- It refuses to fit on fewer than 60 departures, and flags factors seen on too few
+  animal-days to estimate.
+- The model is saved next to the database it was fit on (`data/x.db` →
+  `data/x.model.json`). `at-risk`, `export` and the app pick it up automatically.
+- v2 can flag an animal on day 6: if everything about it predicts a long wait, it's
+  worth helping before the wait happens, not only after.
+
 **`matcher.py` / `bios.py`** — hard constraints are applied in SQL before Claude sees
 anything. Unknown stays unknown throughout (no data on cats ≠ bad with cats). The bio
 prompt forbids invented facts and urgency framing, and also returns `unknowns_to_fill`:
@@ -124,19 +147,33 @@ what the shelter should add to the listing.
 
 On 90 simulated days (455 animals, 3 shelters):
 
-| Check | Result | Reading |
-|---|---|---|
-| Median days listed, truncation-aware vs. naive | 30 vs. 47 | Ignoring delayed entry overstates the headline number by more than half |
-| Scorer backtest AUC (as of 45 days ago, still listed 30 days later) | 0.56 | Better than a coin flip, but not by much |
-| Same, with the true adoption rate as the score | 0.75 | The best any scorer could do here; adoption stays random even when the odds are known |
-| Rank correlation of score with the true rate | −0.51 | The score gets the ordering roughly right… |
+**Survival.** The median time listed is 30 days when delayed entry is handled and
+47 days when it isn't. Ignoring it overstates the headline number by more than half.
 
-…but it leaves a large share of the possible accuracy unused. The weights are
-hand-set, and half the points go to tenure, which says little about a single animal
-when adoption odds don't change with time. **Fitting the weights to observed outcomes
-is the next piece of work** (see `PLAN.md`). Note that the simulation's multipliers
-are ones I set, so fitting to simulated data would just recover my own assumptions.
-The fitting has to happen on real history.
+**Parameter recovery.** The simulator assigns each animal a known adoption rate built
+from known multipliers. Fitting on its history, **all 15 true rate ratios fall inside
+their 95% intervals** (e.g. senior: true 0.45, fitted 0.41 [0.27–0.61]; extra large:
+true 0.50, fitted 0.39 [0.24–0.61]; time listed: true 1.00, fitted 1.00 [0.89–1.11]).
+This is a test in `tests/test_fitting.py`. It shows the fitting code is correct
+before it's trusted on real data.
+
+**Backtest.** Score everyone as of N days ago, then check who was still listed 30 days
+later. The fitted model only sees data from before the as-of date:
+
+| As of | Rules v1 AUC | Fitted v2 AUC | Best possible (true rates) |
+|---|---|---|---|
+| 30 days ago | 0.56 | 0.64 | 0.66 |
+| 45 days ago | 0.56 | 0.73 | 0.75 |
+| 60 days ago | 0.60 | 0.76 | 0.79 |
+
+**How to read that honestly:** v2 comes close to the best possible score here partly
+by construction. The simulator's adoption rates have exactly the multiplicative form
+the model assumes, and use the same factors. Real adoptions depend on things no
+listing records (how photogenic the animal is, the shelter's foot traffic, the
+season), so expect a real-data AUC well below these numbers. What the simulation does
+show: (1) the fitting and backtest code is correct and doesn't peek at the future,
+(2) hand-set weights left a lot of accuracy unused, and (3) with a few weeks of real
+data, the same pipeline will say how much of the gap is real.
 
 ## Bugs the simulator caught
 
@@ -154,11 +191,12 @@ These passed the hand-written test data and would have broken on real data:
 ## Testing
 
 ```bash
-make test   # 39 tests, no network, no keys
+make test   # 45 tests, no network, no keys
 ```
 
 Covers the HTTP client (MockTransport), ingest edge cases, relist handling,
-migrations, the scorer, the matcher (with a fake LLM), Kaplan–Meier against a
+migrations, both scorers, recovery of the simulator's planted effects, a check that
+the backtest can't see the future, the matcher (with a fake LLM), Kaplan–Meier against a
 hand-worked example and a large simulated sample where the true median is known,
 the review workflow, and a headless run of the Streamlit app (`AppTest`) through every tab.
 
@@ -169,7 +207,11 @@ the review workflow, and a headless run of the Streamlit app (`AppTest`) through
 - Coverage differs by shelter. A shelter that keeps its listings poorly will look like
   one with hard-to-place animals, so compare within a shelter before comparing across.
 - The listing-edit effect is observational. Shelters choose which listings to improve.
-- Scorer weights are hand-set and not yet fitted (see above).
+- The fitted model assumes each factor multiplies the adoption rate independently,
+  with no interactions (e.g. "large *and* senior" is just the two ratios multiplied).
+  Enough real data would let us test that.
+- Band cut-offs (critical ≥ 80% chance of still being listed in 30 days, elevated
+  ≥ 70%) were set on simulated data. Revisit them once real data is in.
 
 ## Data use
 

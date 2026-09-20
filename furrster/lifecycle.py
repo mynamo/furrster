@@ -289,6 +289,7 @@ def evaluate_scorer(
         r["published_at"] = start
         r["photo_count"] = r["snap_photos"]
         r["description"] = "x" * int(r["snap_desc_len"] or 0)
+        r["description_len"] = int(r["snap_desc_len"] or 0)
         records.append(r)
 
     scored = {s.animal_id: s for s in score_population(records, now=as_of)}
@@ -303,8 +304,23 @@ def evaluate_scorer(
                .reindex(["critical", "elevated", "watch", "ok"]).dropna()
                .round(3).reset_index().to_dict("records"))
 
+    # v2: fit ONLY on intervals that ended by the as-of date, then score the same
+    # animals. Anything else would let the model learn the answers it is graded on.
+    from . import fitting
+
+    auc_fitted, fitted_note = None, None
+    try:
+        model = fitting.fit(conn, before=as_of)
+        v2 = {s["animal_id"]: s["score"] for s in fitting.score_rows(model, records, now=as_of)}
+        v2_scores = np.array([v2[i] for i in rows["animal_id"]])
+        auc_fitted = _concordance(v2_scores, stayed)
+    except ValueError as exc:
+        fitted_note = str(exc)
+
     result: dict[str, Any] = {
         "as_of": as_of.date().isoformat(),
+        "auc_fitted": None if auc_fitted is None else round(auc_fitted, 3),
+        "fitted_note": fitted_note,
         "horizon_days": horizon_days,
         "animals_scored": len(rows),
         "still_listed_after_horizon": int(stayed.sum()),

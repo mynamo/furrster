@@ -28,3 +28,4 @@ dist/
 !.gitkeep
 data/logs/
 *.tgz
+data/*.model.json

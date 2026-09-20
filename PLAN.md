@@ -6,13 +6,13 @@ tenure, adoption is conversion, and "hard to place" is a churn-risk segment. Eve
 phase below has an analytics analogue named in italics, because that is the thing a
 hiring manager is actually reading for.
 
-## Status (Sept 2026)
+## Status (updated 2026-09-20)
 
 | Phase | State |
 |---|---|
 | 1 · Ingestion + warehouse | ✅ shipped |
 | 2 · Daily pull | ✅ built (`make schedule`) — **switch on once the Petfinder key arrives** |
-| 3 · Lifecycle analytics | ✅ survival curves, edit effect, backtest · ⏳ weight fitting |
+| 3 · Lifecycle analytics | ✅ survival curves, edit effect, backtest, fitted scorer v2 |
 | 4 · Matching UI | ✅ Streamlit tab · ⏳ feedback loop, human-agreement eval |
 | 5 · Outreach | ✅ review queue · ⏳ prompt A/B against outcomes |
 | 6 · Portfolio surface | ✅ dashboard · ⏳ write-up |
@@ -25,9 +25,12 @@ hiring manager is actually reading for.
 2. **First real-data shakedown.** Expect more mismatches between how the API
    documents its data and what it actually sends (the simulator caught two already).
    Compare `stats` against what you see on petfinder.com for one shelter.
-3. **Fit the scorer (3b below).** It's the biggest known gap: backtest AUC 0.56
-   against a ceiling of 0.75 on simulated data.
-4. **Write-up (Phase 6)** once there are ~4 weeks of real snapshots.
+3. **Refit on real data.** After about 4 weeks of real pulls, run `fit` and
+   `lifecycle`. Compare the real v2 AUC with the simulated one, and check whether
+   time on the listing matters in reality (in the simulation it doesn't, by design).
+   Re-set the band cut-offs.
+4. **Write-up (Phase 6).** The parameter-recovery result and the "why real AUC will be
+   lower" argument are the core of it.
 
 ---
 
@@ -70,7 +73,7 @@ about shelters. The simulation's multipliers are my assumptions.
 
 ---
 
-## Phase 3 — Measured lifecycle ✅ / 3b fitting ⏳
+## Phase 3 — Measured lifecycle ✅ (incl. 3b fitted scorer)
 
 *Analogue: cohort retention curves + churn model.*
 
@@ -86,20 +89,18 @@ Done (`lifecycle.py`, Lifecycle tab):
   listed 30 days later. Reports AUC, and on simulated data the best achievable AUC
   and the correlation with the true rate.
 
-**3b — fit the weights (next):**
+**3b — fitted weights ✅** (`fitting.py`, `fit` command)
 
-- Model: a Poisson regression of departures per animal-day on the scorer's factors,
-  with tenure as an offset or spline. This is equivalent to a piecewise-exponential
-  survival model. It can be fit with numpy Newton–Raphson in about 40 lines, or with
-  `statsmodels` if a new dependency is acceptable.
-- Turn the coefficients into suggested `WEIGHTS` and keep the per-factor reasons.
-  A model a shelter coordinator can argue with is worth more than a slightly higher AUC.
-- Fit on **real** history only (≥4–6 weeks). Use the simulated data to check that the
-  fitting code recovers the multipliers the simulator was given, which makes it a
-  good unit test.
-- Tenure currently gets 50 of 100 points. If real data shows the adoption rate
-  doesn't change much with time listed, most of that weight should move to the
-  friction factors.
+- Poisson rate model on the animal-day table (discrete-time piecewise-exponential),
+  fit by penalized Newton–Raphson in numpy; rate ratios with 95% intervals.
+- Validated by parameter recovery: all 15 planted effects inside their intervals on
+  simulated data, run as a test.
+- The backtest refits using only pre-as-of data. On simulated data v2 reaches 0.73 AUC
+  vs. 0.56 for v1 and a 0.75 ceiling (the gap is partly by construction; see README).
+- v2 score = chance of still being listed in 30 days; reasons are rate ratios.
+- ⏳ With real data: test interactions (senior × large), compare a tenure spline
+  with log tenure, and check calibration (predicted vs. observed share still listed,
+  by decile).
 
 ---
 
