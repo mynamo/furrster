@@ -22,7 +22,7 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from furrster import db, fitting, lifecycle as L  # noqa: E402
+from furrster import db, fitting, lifecycle as L, outreach as O  # noqa: E402
 from furrster.config import load_settings  # noqa: E402
 from furrster.matcher import AdopterProfile, shortlist  # noqa: E402
 from furrster.scoring import score_population  # noqa: E402
@@ -122,6 +122,45 @@ def load_edit_effect(db_path: str) -> dict:
     out = L.listing_edit_effect(conn).to_dict()
     conn.close()
     return out
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_outreach(db_path: str, model_version: float) -> dict | None:
+    model = fitting.load(db_path)
+    if model is None:
+        return None
+    conn = _conn()
+    rows = db.rows_to_dicts(db.fetch_active(conn))
+    orgs = dict(conn.execute(
+        "SELECT organization_id, COALESCE(name, organization_id) FROM organizations"))
+    gaps = O.listing_gaps(model, rows)
+    eff = O.measure_campaigns(conn, model)
+    camps = O.list_campaigns(conn)
+    picks = O.pick_animals(conn, rows, model, n=5)
+    conn.close()
+    return {"gaps": gaps, "by_shelter": O.gaps_by_shelter(gaps, orgs),
+            "effect": eff.to_dict() if eff else None, "campaigns": camps,
+            "picks": picks, "orgs": orgs}
+
+
+def calibration_chart(cal: list[dict]) -> alt.Chart:
+    df = pd.DataFrame(cal)
+    diag = alt.Chart(pd.DataFrame({"x": [0, 1], "y": [0, 1]})).mark_line(
+        color=INK_MUTED, strokeDash=[3, 3], strokeWidth=1).encode(x="x:Q", y="y:Q")
+    axis = dict(format="%", gridColor=GRID, domain=False, tickCount=5)
+    pts = alt.Chart(df).mark_point(filled=True, size=110, color=SERIES[0],
+                                   stroke="#fcfcfb", strokeWidth=2).encode(
+        x=alt.X("predicted:Q", title="Predicted share still listed after 30 days",
+                scale=alt.Scale(domain=[0, 1]), axis=alt.Axis(**axis)),
+        y=alt.Y("observed:Q", title="Observed", scale=alt.Scale(domain=[0, 1]),
+                axis=alt.Axis(**axis)),
+        tooltip=[alt.Tooltip("group:O", title="Quintile"),
+                 alt.Tooltip("animals:Q", title="Animals"),
+                 alt.Tooltip("predicted:Q", title="Predicted", format=".0%"),
+                 alt.Tooltip("observed:Q", title="Observed", format=".0%")])
+    line = alt.Chart(df).mark_line(color=SERIES[0], strokeWidth=2).encode(
+        x="predicted:Q", y="observed:Q")
+    return (diag + line + pts).properties(height=300)
 
 
 def refresh():
@@ -248,8 +287,8 @@ if active.empty:
     )
     st.stop()
 
-tab_overview, tab_risk, tab_life, tab_match, tab_review = st.tabs(
-    ["Overview", "At risk", "Lifecycle", "Match", "Review queue"]
+tab_overview, tab_risk, tab_life, tab_outreach, tab_match, tab_review = st.tabs(
+    ["Overview", "At risk", "Lifecycle", "Outreach", "Match", "Review queue"]
 )
 
 # ------------------------------------------------------------------- overview
@@ -478,18 +517,119 @@ with tab_life:
                       help="Fitted only on data from before the as-of date, so it "
                            "never sees the outcomes it's graded on.")
             if "oracle_auc" in bt:
-                b3.metric("Ceiling · true-hazard oracle", bt["oracle_auc"],
-                          help="Only available on simulated data, where the true "
-                               "adoption odds are known. Adoption is random even with "
-                               "perfect knowledge, so this is well below 1.0.")
+                b3.metric("Reference · true adoption rates", bt["oracle_auc"],
+                          help="Only on simulated data, where each animal's true adoption "
+                               "odds (including any campaign boost) are known. It's the best "
+                               "score on average; on one sample another score can edge "
+                               "past it by chance. Adoption is random even with perfect "
+                               "knowledge, so this is well below 1.0.")
             if bt.get("fitted_note"):
                 st.caption(f"Fitted v2: {bt['fitted_note']}")
+            if bt.get("calibration"):
+                st.markdown("**Calibration of the fitted score**")
+                st.altair_chart(calibration_chart(bt["calibration"]), width="stretch")
+                st.caption(
+                    "Each dot is a fifth of the animals, grouped by predicted chance of still "
+                    "waiting. On the dashed line, \"70%\" really means 7 in 10. Dots below "
+                    "the line at the high end are expected when outreach works: scores assume "
+                    "no outreach, and shelters give the hardest cases the most help.")
             st.caption("Share still listed 30 days later, by rules-v1 band:")
             st.dataframe(pd.DataFrame(bt["by_band"]).assign(
                 band=lambda d: d["band"].map(band_label)),
                 hide_index=True, width="stretch",
                 column_config={"share_still_listed": st.column_config.NumberColumn(
                     "Still listed after 30 days", format="percent")})
+
+# ------------------------------------------------------------------- outreach
+
+with tab_outreach:
+    data = load_outreach(DB, MODEL_V)
+    if data is None:
+        st.info("Outreach planning uses the fitted model. Run "
+                "`python -m furrster.cli fit` once there's enough history.")
+    else:
+        orgs = data["orgs"]
+        st.subheader("This week's picks")
+        st.caption("Highest chance of still waiting in 30 days, not already in a campaign "
+                   "or awaiting review. `furrster.cli outreach-cycle` does this weekly and "
+                   "drafts copy for them.")
+        for p in data["picks"]:
+            with st.container(border=True):
+                c1, c2 = st.columns([5, 1])
+                c1.markdown(
+                    f"{band_label(p['band'])} **{p['name']}** · {p['type']} · "
+                    f"{orgs.get(p['organization_id'], p['organization_id'])} · "
+                    f"{p['days_listed']} days · **{p['score']:.0f}%** still listed in 30d  \n"
+                    f"<span style='color:#52514e'>{p['why']}</span>", unsafe_allow_html=True)
+                if c2.button("Start campaign", key=f"camp-{p['animal_id']}"):
+                    conn = _conn()
+                    O.add_campaign(conn, p["animal_id"], "feature", note="started from app")
+                    conn.close()
+                    refresh()
+                    st.rerun()
+
+        st.subheader("Listing gaps")
+        bs = data["by_shelter"]
+        if bs.empty:
+            st.success("No fixable gaps on current listings.")
+        else:
+            bar = alt.Chart(bs).mark_bar(color=SERIES[0], cornerRadiusEnd=4).encode(
+                y=alt.Y("shelter:N", sort="-x", title=None),
+                x=alt.X("expected_extra_adoptions:Q",
+                        title="Expected extra adoptions in 30 days if gaps were fixed",
+                        axis=alt.Axis(gridColor=GRID, domain=False)),
+                tooltip=[alt.Tooltip("shelter:N", title="Shelter"),
+                         alt.Tooltip("expected_extra_adoptions:Q", title="Expected extra",
+                                     format=".1f"),
+                         alt.Tooltip("photo_gaps:Q", title="Photo gaps"),
+                         alt.Tooltip("writeup_gaps:Q", title="Write-up gaps")],
+            ).properties(height=alt.Step(34))
+            st.altair_chart(bar, width="stretch")
+            st.caption("If the model's associations are causal. It's a way to decide where "
+                       "volunteer time goes first; campaign tracking below is how to check. "
+                       "Missing compatibility info is counted but not valued: filling it in "
+                       "can reveal a restriction as easily as remove a doubt.")
+            gaps = data["gaps"].assign(
+                shelter=lambda d: d["organization_id"].map(lambda o: orgs.get(o, o)))
+            pick = st.multiselect("Shelter", sorted(gaps["shelter"].unique()),
+                                  default=sorted(gaps["shelter"].unique()), key="gap-shelter")
+            view = gaps[gaps["shelter"].isin(pick)]
+            st.dataframe(
+                view[["name", "shelter", "days_listed", "fixes", "unknown_info",
+                      "p_adopt_now", "p_adopt_fixed"]],
+                hide_index=True, width="stretch", height=320,
+                column_config={
+                    "name": "Name", "shelter": "Shelter", "days_listed": "Days",
+                    "fixes": st.column_config.TextColumn("Fix", width="large"),
+                    "unknown_info": "Unknown: good with…",
+                    "p_adopt_now": st.column_config.NumberColumn(
+                        "Adopted in 30d, now", format="percent"),
+                    "p_adopt_fixed": st.column_config.NumberColumn(
+                        "…if fixed", format="percent"),
+                })
+
+        st.subheader("Do campaigns work?")
+        eff = data["effect"]
+        if eff is None:
+            st.info("Needs campaigns with 30 days of follow-up. Start them above, from the "
+                    "Review queue (Mark as published), or `furrster.cli campaign add`.")
+        else:
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Campaigns measured", eff["campaigns"])
+            m2.metric("vs. equally hard-to-place animals", f"×{eff['matched_rate_ratio']}",
+                      help=f"95% CI {eff['matched_ci'][0]}–{eff['matched_ci'][1]}. "
+                           "Rate of leaving the listing over 30 days, featured vs. the "
+                           f"{eff['controls_per_campaign']} most similar untouched animals "
+                           "on the same day.")
+            m3.metric("vs. everyone (naive)", f"×{eff['naive_rate_ratio']}",
+                      help="Understates the effect: shelters feature the hardest cases.")
+            st.caption(f"95% interval for the matched estimate: "
+                       f"{eff['matched_ci'][0]}–{eff['matched_ci'][1]}.")
+        camps = data["campaigns"]
+        if not camps.empty:
+            with st.expander(f"All campaigns ({len(camps)})"):
+                st.dataframe(camps[["name", "type", "kind", "started_at", "note"]],
+                             hide_index=True, width="stretch")
 
 # ---------------------------------------------------------------------- match
 
@@ -588,5 +728,21 @@ with tab_review:
                     db.set_review(conn, item["content_id"], "rejected", note or None)
                     conn.close()
                     st.rerun()
-            elif item.get("review_note"):
-                st.caption(f"Note: {item['review_note']} · {item.get('reviewed_at')}")
+            else:
+                if item.get("review_note"):
+                    st.caption(f"Note: {item['review_note']} · {item.get('reviewed_at')}")
+                if status == "approved":
+                    conn = _conn()
+                    done = conn.execute("SELECT 1 FROM campaigns WHERE content_id = ?",
+                                        (item["content_id"],)).fetchone()
+                    conn.close()
+                    if done:
+                        st.caption("📣 Published — tracked as a campaign.")
+                    elif st.button("📣 Mark as published", key=f"pub-{item['content_id']}"):
+                        conn = _conn()
+                        O.add_campaign(conn, item["animal_id"], "copy",
+                                       content_id=item["content_id"],
+                                       note=f"{item['kind']} {item.get('channel') or ''}".strip())
+                        conn.close()
+                        refresh()
+                        st.rerun()

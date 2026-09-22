@@ -63,8 +63,10 @@ FEATURES: list[tuple[str, str]] = [
     ("photos_1", "one photo (vs. 2+)"),
     ("thin_writeup", "write-up under 280 characters"),
     ("hard_tag", "tagged shy / timid / needs experience"),
+    ("in_campaign", "in an outreach campaign (first 30 days)"),
     ("log_tenure", "log(1 + days listed)"),
 ]
+CAMPAIGN_DAYS = 30
 FEATURE_NAMES = [f for f, _ in FEATURES]
 LABELS = dict(FEATURES)
 
@@ -107,6 +109,10 @@ def feature_vector(row: dict[str, Any], tenure_days: float) -> np.ndarray:
         "photos_1": photos == 1,
         "thin_writeup": desc_len < 280,
         "hard_tag": bool(_tags(row.get("tags_json")) & HARD_TAGS),
+        # Scores are "without outreach" by default: the counterfactual that matters
+        # for deciding who to help. The panel sets this for campaign periods, so the
+        # campaign effect is estimated instead of silently inflating other factors.
+        "in_campaign": bool(row.get("in_campaign")),
         "log_tenure": np.log1p(max(0.0, float(tenure_days))),
     }
     return np.array([float(f[name]) for name in FEATURE_NAMES])
@@ -171,6 +177,18 @@ def build_panel(conn: sqlite3.Connection, before: datetime | None = None) -> pd.
         _ts(panel["first_seen_at"]),
     ], axis=1).min(axis=1)
     panel["tenure_days"] = ((panel["t"] - start) / pd.Timedelta(days=1)).clip(lower=0)
+
+    panel["in_campaign"] = False
+    has_campaigns = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='campaigns'").fetchone()
+    if has_campaigns:
+        camps = pd.read_sql_query("SELECT animal_id, started_at FROM campaigns", conn)
+        if not camps.empty:
+            camps["c0"] = _ts(camps["started_at"])
+            window = pd.Timedelta(days=CAMPAIGN_DAYS)
+            m = panel[["animal_id", "t"]].reset_index().merge(camps, on="animal_id")
+            hit = m[(m["c0"] <= m["t"]) & (m["t"] < m["c0"] + window)]["index"].unique()
+            panel.loc[hit, "in_campaign"] = True
     return panel.reset_index(drop=True)
 
 
@@ -194,6 +212,7 @@ class FittedModel:
     data_through: str | None = None
     simulated: bool = False
     notes: list[str] = field(default_factory=list)
+    feature_counts: dict[str, int] = field(default_factory=dict)
 
     # ---- prediction
 
@@ -215,7 +234,7 @@ class FittedModel:
         x = feature_vector(row, tenure_days)
         out = []
         for name, value in zip(FEATURE_NAMES, x):
-            if value == 0:
+            if value == 0 or name == "in_campaign":
                 continue
             ratio = float(np.exp(self.coefs[name] * value))
             if abs(np.log(ratio)) < 0.05:
@@ -232,6 +251,7 @@ class FittedModel:
             rows.append({
                 "factor": LABELS[name],
                 "key": name,
+                "animal_days": self.feature_counts.get(name),
                 "rate_ratio": float(np.exp(b)),
                 "ci_low": float(np.exp(b - 1.96 * se)),
                 "ci_high": float(np.exp(b + 1.96 * se)),
@@ -286,7 +306,10 @@ def fit(conn: sqlite3.Connection, before: datetime | None = None) -> FittedModel
     se = np.sqrt(np.diag(cov))
 
     notes = []
+    counts = {name: int((col != 0).sum()) for name, col in zip(FEATURE_NAMES, X.T)}
     for name, col in zip(FEATURE_NAMES, X.T):
+        if name == "in_campaign" and col.sum() == 0:
+            continue  # no campaigns recorded yet: nothing to estimate, nothing to warn about
         if name != "log_tenure" and col.sum() < 20:
             notes.append(f"'{LABELS[name]}' appears in only {int(col.sum())} animal-days; "
                          "its estimate is mostly the ridge prior.")
@@ -304,6 +327,7 @@ def fit(conn: sqlite3.Connection, before: datetime | None = None) -> FittedModel
         data_through=None if before is None else before.isoformat(),
         simulated=simulated,
         notes=notes,
+        feature_counts=counts,
     )
 
 

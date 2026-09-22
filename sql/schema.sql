@@ -124,6 +124,22 @@ CREATE TABLE IF NOT EXISTS generated_content (
 
 CREATE INDEX IF NOT EXISTS ix_content_animal ON generated_content(animal_id, kind);
 
+-- Outreach actions taken for an animal (featured post, approved copy published,
+-- listing refresh...). Explicit, so their effect can be measured against matched
+-- animals that got nothing.
+CREATE TABLE IF NOT EXISTS campaigns (
+    campaign_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    animal_id    INTEGER NOT NULL,
+    kind         TEXT NOT NULL,        -- copy | feature | listing_refresh | event
+    started_at   TEXT NOT NULL,
+    content_id   INTEGER,              -- generated_content row, if copy-driven
+    note         TEXT,
+    created_at   TEXT NOT NULL,
+    FOREIGN KEY (animal_id) REFERENCES animals(animal_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_campaigns_animal ON campaigns(animal_id, started_at);
+
 -- Adopter intake, so matches are reproducible and reviewable.
 CREATE TABLE IF NOT EXISTS adopters (
     adopter_id  INTEGER PRIMARY KEY AUTOINCREMENT,

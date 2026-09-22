@@ -6,7 +6,7 @@ tenure, adoption is conversion, and "hard to place" is a churn-risk segment. Eve
 phase below has an analytics analogue named in italics, because that is the thing a
 hiring manager is actually reading for.
 
-## Status (updated 2026-09-20)
+## Status (updated 2026-09-22)
 
 | Phase | State |
 |---|---|
@@ -14,7 +14,7 @@ hiring manager is actually reading for.
 | 2 · Daily pull | ✅ built (`make schedule`) — **switch on once the Petfinder key arrives** |
 | 3 · Lifecycle analytics | ✅ survival curves, edit effect, backtest, fitted scorer v2 |
 | 4 · Matching UI | ✅ Streamlit tab · ⏳ feedback loop, human-agreement eval |
-| 5 · Outreach | ✅ review queue · ⏳ prompt A/B against outcomes |
+| 5 · Outreach | ✅ review queue, weekly cycle, listing-gap worklist, campaign effect (matched) · ⏳ prompt A/B, randomized test |
 | 6 · Portfolio surface | ✅ dashboard · ⏳ write-up |
 
 **Next up, in order:**
@@ -25,11 +25,13 @@ hiring manager is actually reading for.
 2. **First real-data shakedown.** Expect more mismatches between how the API
    documents its data and what it actually sends (the simulator caught two already).
    Compare `stats` against what you see on petfinder.com for one shelter.
-3. **Refit on real data.** After about 4 weeks of real pulls, run `fit` and
+3. **Start recording campaigns from day one** (app → *Start campaign* /
+   *Mark as published*, or `campaign add`). The effect estimate needs ~100 of them.
+4. **Refit on real data.** After about 4 weeks of real pulls, run `fit` and
    `lifecycle`. Compare the real v2 AUC with the simulated one, and check whether
    time on the listing matters in reality (in the simulation it doesn't, by design).
    Re-set the band cut-offs.
-4. **Write-up (Phase 6).** The parameter-recovery result and the "why real AUC will be
+5. **Write-up (Phase 6).** The parameter-recovery result and the "why real AUC will be
    lower" argument are the core of it.
 
 ---
@@ -117,20 +119,31 @@ Done (`lifecycle.py`, Lifecycle tab):
 
 ---
 
-## Phase 5 — Outreach you can measure ✅ queue / ⏳ experiment
+## Phase 5 — Outreach you can measure ✅ / ⏳ experiments
 
-*Analogue: lifecycle marketing + creative A/B testing.*
+*Analogue: lifecycle marketing + incrementality measurement.*
 
-- ✅ Review queue: every draft is `pending` until a person approves, edits or
-  rejects it (`review_status`, `reviewed_at`, `review_note`). Nothing is posted
-  automatically.
-- ✅ `prompt_version` is stored with every generation.
-- ⏳ Weekly job: score → draft the top N critical animals → queue.
-- ⏳ Measure the intervention, not the copy: compare days listed before and after a
-  refresh against a matched control group, using the same machinery as the
-  listing-edit comparison.
-- ⏳ `unknowns_to_fill` report per shelter. It's often the most useful thing to
-  show a shelter.
+- ✅ Review queue: nothing ships without a person approving, editing or rejecting
+  it. `prompt_version` is stored with every generation.
+- ✅ `outreach-cycle` (Mondays via the scheduled pull): refit if stale → top 5 animals
+  not already in a campaign → Claude drafts into the queue → reports in
+  `data/reports/`.
+- ✅ Listing-gap worklist: counterfactual value of fixing photos and write-ups per
+  animal, summed per shelter as expected extra adoptions.
+- ✅ Campaigns table + measurement: risk-matched controls (5 nearest on predicted
+  rate, same day), later-campaign controls counted only up to their own campaign,
+  bootstrap CI. Validated against a planted ×1.8 effect: the naive comparison says
+  ×1.0, the matched interval covers 1.8 on 5/5 seeds.
+- ✅ An "in a campaign" factor in the fitted model: a second estimate, and scores are
+  defined "without outreach".
+- ⏳ **Randomized test.** The only thing that fully beats selection bias. For pairs
+  of similar animals, feature one chosen by coin flip. Needs shelter buy-in; the
+  campaigns table already supports it (add `kind = 'feature_rct'`).
+- ⏳ Prompt A/B: alternate two `prompt_version`s and compare published-copy effects
+  with the same matched machinery.
+- ⏳ Power: with a ×1.5 true effect and a 30-day window, about how many campaigns
+  are needed for a CI that excludes 1? Simulate it before promising a shelter
+  anything.
 
 ---
 

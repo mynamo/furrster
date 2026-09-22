@@ -26,7 +26,7 @@ END = datetime(2026, 9, 1, 14, tzinfo=timezone.utc)
 def sim_db(tmp_path_factory):
     path = tmp_path_factory.mktemp("fit") / "sim.db"
     simulate(Settings(None, None, None, "m", path, "94110", 50),
-             days=90, seed=42, initial_population=140, end=END)
+             days=90, seed=42, initial_population=140, end=END, campaigns=False)
     return path
 
 

@@ -19,5 +19,9 @@ PY="$REPO/.venv/bin/python"
   fi
   "$PY" -m furrster.cli ingest --type dog --type cat
   "$PY" -m furrster.cli orgs --max-pages 2 || echo "orgs refresh failed (non-fatal)"
+  # Mondays: weekly outreach cycle (refit if stale, picks, drafts, gap report).
+  if [[ "$(date +%u)" == "1" ]]; then
+    "$PY" -m furrster.cli outreach-cycle || echo "outreach cycle failed (non-fatal)"
+  fi
   echo "ok"
 } >> "$LOG" 2>&1

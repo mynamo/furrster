@@ -15,6 +15,9 @@ churn-risk segment.
    against what actually happened afterwards.
 4. **Matching and outreach.** Adopter intake → SQL shortlist → Claude ranking with
    honest caveats; drafted bios and social copy that a person approves before use.
+5. **Outreach you can measure.** A weekly worklist of who to help and which listing
+   fixes matter most, plus campaign tracking that compares featured animals with
+   equally hard-to-place ones, so you can tell whether the outreach worked.
 
 Everything except the two Claude features runs with no API keys and no network.
 
@@ -27,14 +30,13 @@ git clone https://github.com/mynamo/furrster.git && cd furrster
 make install
 
 # No Petfinder key yet? Build 90 days of synthetic history and open the app on it:
-make simulate          # writes data/sim.db (never mixed with real data)
-FURRSTER_DB=data/sim.db python -m furrster.cli fit   # learn risk weights from it
+make simulate          # writes data/sim.db (never mixed with real data) and fits on it
 make app-sim           # Streamlit dashboard on the simulated database
 
 # With a key:
 cp .env.example .env   # fill in PETFINDER_KEY / PETFINDER_SECRET
 make ingest            # first real pull into data/furrster.db
-make schedule          # daily 07:15 pull via launchd (macOS)
+make schedule          # daily 07:15 pull via launchd (macOS); Mondays also run outreach-cycle
 make app
 ```
 
@@ -44,15 +46,16 @@ application name and URL — this repo's GitHub URL works. An Anthropic key (for
 
 ## The app
 
-`make app` (or `python -m furrster.cli app`) opens five tabs:
+`make app` (or `python -m furrster.cli app`) opens six tabs:
 
 | Tab | What it's for |
 |---|---|
 | **Overview** | Listed now, departures in the last 30 days, median days listed, risk mix |
 | **At risk** | Filterable queue with reasons; click a row for the factor breakdown and a *Draft copy* button |
-| **Lifecycle** | Survival curves split by species×size / age / species / shelter; listing-edit effect; scorer backtest |
+| **Lifecycle** | Survival curves by segment; what slows adoption (rate ratios); listing-edit effect; scorer backtest and calibration |
+| **Outreach** | This week's picks with *Start campaign*; listing gaps per shelter with expected extra adoptions; measured campaign effect |
 | **Match** | Adopter intake form → hard-filter shortlist → optional Claude ranking |
-| **Review queue** | Approve, edit or reject every generated bio/post before it's used |
+| **Review queue** | Approve, edit or reject every generated bio/post; *Mark as published* turns approved copy into a tracked campaign |
 
 A yellow banner marks any simulated database so a demo is never mistaken for findings.
 
@@ -70,6 +73,8 @@ A yellow banner marks any simulated database so a demo is never mistaken for fin
 | `stats` | Database contents and recent runs | — |
 | `match "…" --children --max-size medium` | Ranked shortlist with rationale and concerns | Anthropic key |
 | `draft --count 3` | Bios + Instagram/Facebook/X copy for the top at-risk animals | Anthropic key |
+| `outreach-cycle` | Weekly: refit if stale, pick top animals, draft copy, write gap report to `data/reports/` | (Anthropic key for drafts) |
+| `campaign add/list/effect` | Record outreach for an animal; measure the effect against matched animals | — |
 | `app` | Launch the dashboard | — |
 
 ## Architecture
@@ -138,6 +143,35 @@ this animal down, each with its multiplier. Some details:
 - v2 can flag an animal on day 6: if everything about it predicts a long wait, it's
   worth helping before the wait happens, not only after.
 
+**`outreach.py` — from scores to actions, and whether the actions work.**
+
+- *Listing gaps.* For every listed animal, what the shelter could fix today and what
+  the fitted model says each fix is worth. It reruns the model with the gap filled
+  and reports "adopted within 30 days: 36% now → 69% with photos and a proper
+  write-up". Per shelter, the gains add up to expected extra adoptions. Missing
+  compatibility info is listed but not valued, since filling it in can reveal a
+  restriction as easily as remove a doubt. The values are only as causal as the
+  model's coefficients, so treat them as a way to prioritize and check them with
+  campaign tracking.
+- *Campaigns.* Explicit records of outreach: featured posts, published copy (the
+  review queue's *Mark as published*), listing refreshes.
+- *Effect measurement.* Shelters feature the animals they worry about, so a naive
+  comparison with all other animals makes featured animals look no better off.
+  Instead, each featured animal is compared with its 5 nearest untouched animals on
+  the fitted model's predicted rate on the same day, counting departures per
+  animal-day over 30 days, with a bootstrap 95% interval. A control animal that gets
+  its own campaign later is counted only up to that point, not dropped. Dropping it
+  would keep only the fast adopters as controls, because shelters pick animals that
+  kept waiting. The first version made exactly that mistake and understated the
+  effect.
+- The fitted model also has an "in a campaign" factor. That gives a second,
+  regression-based estimate of the effect and keeps outreach from inflating other
+  factors. Scores are always computed *without* outreach, which is the question that
+  matters when deciding who to help.
+- `outreach-cycle` runs weekly (the scheduled pull runs it on Mondays). It writes
+  `data/reports/outreach_<date>.md` and `listing_gaps_<date>.csv`, and drafts copy
+  into the review queue when an Anthropic key is set.
+
 **`matcher.py` / `bios.py`** — hard constraints are applied in SQL before Claude sees
 anything. Unknown stays unknown throughout (no data on cats ≠ bad with cats). The bio
 prompt forbids invented facts and urgency framing, and also returns `unknowns_to_fill`:
@@ -166,6 +200,30 @@ later. The fitted model only sees data from before the as-of date:
 | 45 days ago | 0.56 | 0.73 | 0.75 |
 | 60 days ago | 0.60 | 0.76 | 0.79 |
 
+(Backtest numbers are from a simulation without outreach campaigns,
+`simulate --no-campaigns`. With campaigns switched on, the outreach itself adds
+noise and the numbers move around more (0.60–0.70 for the fitted model), but it still
+beats the rules at every horizon.)
+
+**Outreach effect.** The simulator features slow, long-listed animals, as a real
+shelter would, and plants a ×1.8 boost to their adoption rate for 30 days:
+
+| Estimate (seed 42) | Rate ratio | 95% CI |
+|---|---|---|
+| Naive: featured vs. everyone else | ×1.0 | — |
+| Matched: featured vs. 5 equally hard-to-place animals | ×1.5 | 1.0–2.4 |
+| Model factor "in a campaign" | ×1.6 | 1.1–2.4 |
+
+Across five seeds, the matched interval contained the true ×1.8 every time, while
+the naive estimate ranged from ×0.8 to ×1.15 (it says outreach does nothing). With
+about 45 campaigns the interval is wide. On real data, plan on roughly 100 or more
+campaigns before trusting a precise number.
+
+**Calibration.** The fitted score is well calibrated where outreach doesn't
+interfere. At the top end, animals with a predicted "75% still waiting" are observed
+at about 55%. That's expected: scores assume no outreach, and those animals are the
+ones the shelter features.
+
 **How to read that honestly:** v2 comes close to the best possible score here partly
 by construction. The simulator's adoption rates have exactly the multiplicative form
 the model assumes, and use the same factors. Real adoptions depend on things no
@@ -191,12 +249,13 @@ These passed the hand-written test data and would have broken on real data:
 ## Testing
 
 ```bash
-make test   # 45 tests, no network, no keys
+make test   # 52 tests, no network, no keys
 ```
 
 Covers the HTTP client (MockTransport), ingest edge cases, relist handling,
 migrations, both scorers, recovery of the simulator's planted effects, a check that
-the backtest can't see the future, the matcher (with a fake LLM), Kaplan–Meier against a
+the backtest can't see the future, recovery of a planted campaign effect (and the naive
+estimate missing it), listing-gap valuation, the publish-to-campaign flow, the matcher (with a fake LLM), Kaplan–Meier against a
 hand-worked example and a large simulated sample where the true median is known,
 the review workflow, and a headless run of the Streamlit app (`AppTest`) through every tab.
 
@@ -206,7 +265,11 @@ the review workflow, and a headless run of the Streamlit app (`AppTest`) through
   death, or account cleanup).
 - Coverage differs by shelter. A shelter that keeps its listings poorly will look like
   one with hard-to-place animals, so compare within a shelter before comparing across.
-- The listing-edit effect is observational. Shelters choose which listings to improve.
+- The listing-edit effect and the listing-gap values are observational. Shelters
+  choose which listings to improve. Campaign measurement uses matching, which only
+  adjusts for what the model can see; a shelter that features the animals it knows
+  are about to be adopted would fool it. A randomized test (feature one of two
+  similar animals, chosen by coin flip) would settle it.
 - The fitted model assumes each factor multiplies the adoption rate independently,
   with no interactions (e.g. "large *and* senior" is just the two ratios multiplied).
   Enough real data would let us test that.

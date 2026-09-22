@@ -243,6 +243,28 @@ def _concordance(scores: np.ndarray, stayed: np.ndarray) -> float | None:
                  / (len(pos) * len(neg)))
 
 
+def _calibration(predicted: np.ndarray, stayed: np.ndarray, groups: int = 5
+                 ) -> list[dict[str, Any]]:
+    """Predicted vs. observed share still listed, by quantile of the prediction.
+
+    AUC only says the ranking is right. Calibration says whether "70% chance of
+    still waiting" actually means 7 in 10, which matters because the bands are
+    absolute probabilities.
+    """
+    if len(predicted) < groups * 5:
+        return []
+    order = np.argsort(predicted)
+    out = []
+    for i, idx in enumerate(np.array_split(order, groups), start=1):
+        out.append({
+            "group": i,
+            "animals": int(len(idx)),
+            "predicted": round(float(predicted[idx].mean()), 3),
+            "observed": round(float(stayed[idx].mean()), 3),
+        })
+    return out
+
+
 def evaluate_scorer(
     conn: sqlite3.Connection,
     *,
@@ -308,18 +330,20 @@ def evaluate_scorer(
     # animals. Anything else would let the model learn the answers it is graded on.
     from . import fitting
 
-    auc_fitted, fitted_note = None, None
+    auc_fitted, fitted_note, calibration = None, None, []
     try:
         model = fitting.fit(conn, before=as_of)
         v2 = {s["animal_id"]: s["score"] for s in fitting.score_rows(model, records, now=as_of)}
         v2_scores = np.array([v2[i] for i in rows["animal_id"]])
         auc_fitted = _concordance(v2_scores, stayed)
+        calibration = _calibration(v2_scores / 100, stayed)
     except ValueError as exc:
         fitted_note = str(exc)
 
     result: dict[str, Any] = {
         "as_of": as_of.date().isoformat(),
         "auc_fitted": None if auc_fitted is None else round(auc_fitted, 3),
+        "calibration": calibration,
         "fitted_note": fitted_note,
         "horizon_days": horizon_days,
         "animals_scored": len(rows),
@@ -344,7 +368,28 @@ def evaluate_scorer(
             # random even for a known hazard, so this is well short of 1.0, and it
             # is the number the scorer's AUC should be read against.
             hz = dict(zip(truth["animal_id"], truth["daily_hazard"]))
-            oracle = -np.array([hz.get(i, np.nan) for i in rows["animal_id"]])
+            # True expected hazard over the horizon, including any planted campaign
+            # uplift for the days an animal spends inside a campaign window.
+            uplift, camp_start = 1.0, {}
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name='sim_params'").fetchone():
+                row = conn.execute(
+                    "SELECT value FROM sim_params WHERE key='campaign_uplift'").fetchone()
+                uplift = float(row[0]) if row else 1.0
+                camps = pd.read_sql_query("SELECT animal_id, started_at FROM campaigns", conn)
+                camp_start = dict(zip(camps["animal_id"], pd.to_datetime(
+                    camps["started_at"], utc=True, format="ISO8601")))
+            a0, a1 = pd.Timestamp(as_of), pd.Timestamp(horizon)
+
+            def true_cum_hazard(aid: int) -> float:
+                base = hz.get(aid, np.nan)
+                c0 = camp_start.get(aid)
+                if c0 is None or uplift == 1.0:
+                    return base * horizon_days
+                c1 = c0 + pd.Timedelta(days=30)
+                overlap = max(0.0, (min(a1, c1) - max(a0, c0)) / pd.Timedelta(days=1))
+                return base * (horizon_days + (uplift - 1) * overlap)
+
+            oracle = -np.array([true_cum_hazard(i) for i in rows["animal_id"]])
             ok = ~np.isnan(oracle)
             ceiling = _concordance(oracle[ok], stayed[ok])
             result["oracle_auc"] = None if ceiling is None else round(ceiling, 3)

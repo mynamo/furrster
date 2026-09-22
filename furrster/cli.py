@@ -343,6 +343,59 @@ def cmd_fit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_outreach_cycle(args: argparse.Namespace) -> int:
+    from .outreach import run_cycle
+
+    settings = load_settings()
+    r = run_cycle(settings, n=args.count, draft=not args.no_draft)
+    print(f"\nScorer: {r.scorer}{' (refit this run)' if r.refit else ''}")
+    print(f"\nThis week's picks ({len(r.picks)}):")
+    print(_table([{**p, "score": f"{p['score']:.0f}"} for p in r.picks],
+                 ["animal_id", "name", "type", "days_listed", "score", "band", "why"]))
+    if r.drafted:
+        print(f"\nDrafted copy for {r.drafted} animals → Review queue.")
+    elif not settings.anthropic_api_key:
+        print("\nNo ANTHROPIC_API_KEY: picks listed, no drafts created.")
+    if r.effect:
+        e = r.effect
+        print(f"\nCampaign effect so far: ×{e['matched_rate_ratio']} vs matched animals "
+              f"(95% CI {e['matched_ci'][0]}–{e['matched_ci'][1]}, {e['campaigns']} campaigns); "
+              f"naive ×{e['naive_rate_ratio']}")
+    if r.summary_md:
+        print(f"\nReports: {r.summary_md}\n         {r.gaps_csv}")
+    return 0
+
+
+def cmd_campaign(args: argparse.Namespace) -> int:
+    from . import fitting, outreach
+
+    settings = load_settings()
+    conn = db.connect(settings.db_path)
+    db.init_db(conn)
+    try:
+        if args.action == "add":
+            if not args.animal_id:
+                print("--animal-id is required")
+                return 1
+            cid = outreach.add_campaign(conn, args.animal_id, args.kind, note=args.note)
+            print(f"Recorded campaign #{cid} ({args.kind}) for animal {args.animal_id}.")
+        elif args.action == "list":
+            df = outreach.list_campaigns(conn)
+            print(df[["campaign_id", "animal_id", "name", "kind", "started_at", "note"]]
+                  .to_string(index=False) if not df.empty else "No campaigns yet.")
+        else:
+            model = fitting.load(settings.db_path)
+            if model is None:
+                print("Run `fit` first — matching uses the fitted model.")
+                return 1
+            eff = outreach.measure_campaigns(conn, model)
+            print(json.dumps(eff.to_dict() if eff else
+                             {"note": "no campaigns with a full 30-day follow-up yet"}, indent=2))
+    finally:
+        conn.close()
+    return 0
+
+
 def cmd_simulate(args: argparse.Namespace) -> int:
     from .simulate import simulate
 
@@ -357,7 +410,7 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     print(f"Simulating {args.days} days of daily pulls into {settings.db_path} …")
     logging.getLogger("furrster.ingest").setLevel(logging.WARNING)
     r = simulate(settings, days=args.days, seed=args.seed,
-                 initial_population=args.population)
+                 initial_population=args.population, campaigns=not args.no_campaigns)
     print(
         f"{r.animals_total} animals, {r.adopted} left the listing, {r.still_listed} still "
         f"listed, {r.relists} relists, {r.edits} listing edits."
@@ -406,7 +459,7 @@ def cmd_lifecycle(args: argparse.Namespace) -> int:
         if bt.get("fitted_note"):
             print(f"  (v2: {bt['fitted_note']})")
         if "oracle_auc" in bt:
-            print(f"  ceiling (true-hazard oracle) {bt['oracle_auc']}, "
+            print(f"  reference (true adoption rates) {bt['oracle_auc']}, "
                   f"rank correlation with true hazard {bt['spearman_vs_true_hazard']}")
         print("  rules-v1 bands:")
         for b in bt["by_band"]:
@@ -486,6 +539,8 @@ def build_parser() -> argparse.ArgumentParser:
     sim.add_argument("--seed", type=int, default=42)
     sim.add_argument("--population", type=int, default=140)
     sim.add_argument("--force", action="store_true")
+    sim.add_argument("--no-campaigns", action="store_true",
+                     help="don't simulate outreach campaigns (cleaner parameter recovery)")
     sim.set_defaults(func=cmd_simulate)
 
     lc = sub.add_parser("lifecycle", help="survival curves, edit effect, scorer backtest")
@@ -495,6 +550,19 @@ def build_parser() -> argparse.ArgumentParser:
     ft = sub.add_parser("fit", help="fit risk weights to observed departures")
     ft.add_argument("--dry-run", action="store_true", help="print, don't save the model")
     ft.set_defaults(func=cmd_fit)
+
+    oc = sub.add_parser("outreach-cycle", help="weekly: pick animals, draft copy, gap report")
+    oc.add_argument("--count", type=int, default=5)
+    oc.add_argument("--no-draft", action="store_true")
+    oc.set_defaults(func=cmd_outreach_cycle)
+
+    cp = sub.add_parser("campaign", help="record outreach and measure its effect")
+    cp.add_argument("action", choices=["add", "list", "effect"])
+    cp.add_argument("--animal-id", type=int)
+    cp.add_argument("--kind", default="feature",
+                    choices=["feature", "copy", "listing_refresh", "event"])
+    cp.add_argument("--note")
+    cp.set_defaults(func=cmd_campaign)
 
     sub.add_parser("app", help="launch the Streamlit dashboard").set_defaults(func=cmd_app)
 

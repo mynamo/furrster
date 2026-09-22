@@ -35,8 +35,8 @@ def run_app(monkeypatch, db_path) -> AppTest:
 def test_app_renders_every_tab_without_errors(monkeypatch, sim_db):
     at = run_app(monkeypatch, sim_db)
     assert not at.exception, [e.value for e in at.exception]
-    assert [t.label for t in at.tabs] == ["Overview", "At risk", "Lifecycle", "Match",
-                                         "Review queue"]
+    assert [t.label for t in at.tabs] == ["Overview", "At risk", "Lifecycle", "Outreach",
+                                         "Match", "Review queue"]
     assert any("Simulated data" in w.value for w in at.warning)
     labels = [m.label for m in at.metric]
     assert "Listed now" in labels and "AUC · rules v1" in labels
@@ -80,5 +80,37 @@ def test_app_switches_to_fitted_model_when_one_exists(monkeypatch, sim_db):
         assert "AUC · fitted v2" in [m.label for m in at.metric]
         at.radio[0].set_value("Rules (v1)").run()
         assert not at.exception
+    finally:
+        fitting.model_path(sim_db).unlink(missing_ok=True)
+
+
+def test_outreach_tab_and_publish_flow(monkeypatch, sim_db):
+    from furrster import db, fitting
+
+    conn = db.connect(sim_db)
+    fitting.save(fitting.fit(conn), sim_db)
+    conn.close()
+    try:
+        at = run_app(monkeypatch, sim_db)
+        assert not at.exception, [e.value for e in at.exception]
+        subs = [h.value for h in at.subheader]
+        assert "This week's picks" in subs and "Listing gaps" in subs
+        start = [b for b in at.button if b.label == "Start campaign"]
+        assert start
+        start[0].click().run()
+        assert not at.exception
+
+        # approve a draft, then publish it -> becomes a tracked campaign
+        [b for b in at.button if b.label == "✓ Approve"][0].click().run()
+        review = [r for r in at.radio if r.label == "Show"][0]
+        review.set_value("approved").run()
+        pub = [b for b in at.button if b.label == "📣 Mark as published"]
+        assert pub
+        pub[0].click().run()
+        assert not at.exception
+        conn = db.connect(sim_db)
+        n = conn.execute("SELECT COUNT(*) FROM campaigns WHERE kind = 'copy'").fetchone()[0]
+        conn.close()
+        assert n == 1
     finally:
         fitting.model_path(sim_db).unlink(missing_ok=True)

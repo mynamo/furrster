@@ -1,4 +1,4 @@
-.PHONY: install ingest score lifecycle simulate app app-sim test schedule unschedule schedule-status clean
+.PHONY: install ingest score lifecycle outreach simulate app app-sim test schedule unschedule schedule-status clean
 
 PY    := ./.venv/bin/python
 PLIST := $(HOME)/Library/LaunchAgents/com.furrster.ingest.plist
@@ -15,9 +15,13 @@ score:
 lifecycle:
 	$(PY) -m furrster.cli lifecycle
 
+outreach:
+	$(PY) -m furrster.cli outreach-cycle
+
 # Synthetic history in its own file, so it can never mix with real pulls.
 simulate:
 	FURRSTER_DB=data/sim.db $(PY) -m furrster.cli simulate --days 90 --force
+	FURRSTER_DB=data/sim.db $(PY) -m furrster.cli fit
 
 app:
 	$(PY) -m furrster.cli app

@@ -35,6 +35,12 @@ from .petfinder import PetfinderClient
 
 BASE_DAILY_ADOPTION = 0.030
 
+# Planted outreach effect: a featured animal's adoption rate is multiplied by this
+# for CAMPAIGN_DAYS. Shelters feature the animals they worry about (slow, long
+# listed), which is exactly the selection that fools a naive comparison.
+CAMPAIGN_UPLIFT = 1.8
+CAMPAIGN_DAYS = 30
+
 AGE_MULT = {"Baby": 2.4, "Young": 1.5, "Adult": 1.0, "Senior": 0.45}
 SIZE_MULT = {"Small": 1.2, "Medium": 1.0, "Large": 0.7, "Extra Large": 0.5}
 TYPE_MULT = {"Dog": 1.0, "Cat": 0.85}
@@ -89,8 +95,17 @@ class SimAnimal:
     arrived_on: datetime
     adopted_on: datetime | None = None
     edits: list[str] = field(default_factory=list)
+    campaign_on: datetime | None = None
 
-    def hazard(self) -> float:
+    def hazard(self, today: datetime | None = None) -> float:
+        """Daily adoption probability. Without `today`, the base rate (no campaign)."""
+        h = self.base_hazard()
+        if (today is not None and self.campaign_on is not None
+                and self.campaign_on <= today < self.campaign_on + timedelta(days=CAMPAIGN_DAYS)):
+            h *= CAMPAIGN_UPLIFT
+        return min(h, 0.5)
+
+    def base_hazard(self) -> float:
         h = BASE_DAILY_ADOPTION
         h *= AGE_MULT[self.age] * SIZE_MULT[self.size] * TYPE_MULT[self.type]
         if self.special_needs:
@@ -107,7 +122,7 @@ class SimAnimal:
             h *= 0.8
         if {"Shy", "Timid", "Needs experienced owner"} & set(self.tags):
             h *= 0.8
-        return min(h, 0.5)
+        return h
 
     def to_petfinder(self, now: datetime) -> dict[str, Any]:
         """Serialize exactly the way the real API would, '+0000' offsets included."""
@@ -231,6 +246,7 @@ def simulate(
     initial_population: int = 140,
     arrivals_per_day: float = 3.5,
     end: datetime | None = None,
+    campaigns: bool = True,
 ) -> SimulationResult:
     """Replay `days` of daily ingests ending at `end` (default: now)."""
     end = (end or datetime.now(timezone.utc)).replace(hour=14, minute=0, second=0,
@@ -264,7 +280,7 @@ def simulate(
                 # Adoptions happen before today's pull, so they show up as departures.
                 still = []
                 for a in active:
-                    if rng.random() < a.hazard():
+                    if rng.random() < a.hazard(today):
                         a.adopted_on = today
                     else:
                         still.append(a)
@@ -281,6 +297,14 @@ def simulate(
                     elif rng.random() < 0.004:
                         a.published_at = today - timedelta(hours=rng.randint(1, 10))
                         relists += 1
+
+                # The shelter features animals it's worried about: slow and long-listed.
+                if campaigns:
+                    for a in active:
+                        tenure = (today - a.published_at).days
+                        if (a.campaign_on is None and a.base_hazard() < 0.02
+                                and tenure >= 21 and rng.random() < 0.03):
+                            a.campaign_on = today
 
                 for _ in range(_poisson(rng, arrivals_per_day)):
                     newcomer = sim.new_animal(today - timedelta(hours=rng.randint(1, 20)))
@@ -299,10 +323,19 @@ def simulate(
         """INSERT OR REPLACE INTO sim_ground_truth
            (animal_id, daily_hazard, arrived_on, adopted_on, edits_json)
            VALUES (?, ?, ?, ?, ?)""",
-        [(a.id, a.hazard(), a.arrived_on.isoformat(),
+        [(a.id, a.base_hazard(), a.arrived_on.isoformat(),
           a.adopted_on.isoformat() if a.adopted_on else None, json.dumps(a.edits))
          for a in everyone],
     )
+    for a in everyone:
+        if a.campaign_on is not None:
+            conn.execute(
+                """INSERT INTO campaigns (animal_id, kind, started_at, note, created_at)
+                   VALUES (?, 'feature', ?, 'simulated', ?)""",
+                (a.id, a.campaign_on.isoformat(timespec="seconds"), a.campaign_on.isoformat()))
+    conn.execute("CREATE TABLE IF NOT EXISTS sim_params (key TEXT PRIMARY KEY, value REAL)")
+    conn.execute("INSERT OR REPLACE INTO sim_params VALUES ('campaign_uplift', ?)",
+                 (CAMPAIGN_UPLIFT if campaigns else 1.0,))
     for org_id, name, city, postcode in SHELTERS:
         conn.execute(
             "UPDATE organizations SET name=?, city=?, state='CA', postcode=? "
