@@ -27,7 +27,7 @@ import math
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -434,3 +434,48 @@ def _write_summary(path, stamp, picks, by_shelter, effect, model, orgs):
                      "`furrster.cli campaign add` or the app.")
     path.write_text("\n".join(lines) + "\n")
     return path
+
+
+# ------------------------------------------------------------------ power
+
+
+def power_curve(uplift: float = 1.5, base_rate: float = 0.025, window_days: int = 30,
+                controls_per_campaign: int = 5,
+                campaign_counts: Sequence[int] = (25, 50, 100, 200, 400),
+                sims: int = 2000, seed: int = 0) -> pd.DataFrame:
+    """How many campaigns before the effect is distinguishable from nothing?
+
+    Simulates departures as Poisson counts over the follow-up window and applies the
+    usual CI for a ratio of two rates (SE of the log ratio = sqrt(1/e1 + 1/e2)).
+    "Power" is the share of runs whose 95% interval excludes 1.
+
+    Worth running before promising a shelter an answer: with a small effect and a
+    handful of campaigns, the honest result is "we can't tell yet".
+    """
+    rng = np.random.default_rng(seed)
+    rows = []
+    for n in campaign_counts:
+        treated_days = n * window_days
+        control_days = n * controls_per_campaign * window_days
+        e1 = rng.poisson(treated_days * base_rate * uplift, sims).astype(float)
+        e2 = rng.poisson(control_days * base_rate, sims).astype(float)
+        ok = (e1 > 0) & (e2 > 0)
+        ratio = np.divide(e1 / treated_days, e2 / control_days, where=ok,
+                          out=np.zeros(sims))
+        se = np.sqrt(np.divide(1, e1, where=ok, out=np.zeros(sims))
+                     + np.divide(1, e2, where=ok, out=np.zeros(sims)))
+        lo = np.exp(np.log(np.where(ok, ratio, 1)) - 1.96 * se)
+        rows.append({"campaigns": n, "power": float((ok & (lo > 1)).mean()),
+                     "median_estimate": float(np.median(ratio[ok])) if ok.any() else 0.0})
+    return pd.DataFrame(rows)
+
+
+def observed_base_rate(conn: sqlite3.Connection, default: float = 0.025) -> float:
+    """Departures per animal-day over the whole history, for the power calculation."""
+    row = conn.execute(
+        "SELECT COUNT(*) FROM animals WHERE is_active = 0").fetchone()
+    days = conn.execute(
+        "SELECT COUNT(*) FROM animal_snapshots").fetchone()
+    if not row or not days or not days[0]:
+        return default
+    return max(1e-4, row[0] / days[0])

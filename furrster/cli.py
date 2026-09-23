@@ -383,6 +383,18 @@ def cmd_campaign(args: argparse.Namespace) -> int:
             df = outreach.list_campaigns(conn)
             print(df[["campaign_id", "animal_id", "name", "kind", "started_at", "note"]]
                   .to_string(index=False) if not df.empty else "No campaigns yet.")
+        elif args.action == "power":
+            base = outreach.observed_base_rate(conn)
+            df = outreach.power_curve(uplift=args.uplift, base_rate=base)
+            print(f"\nBase departure rate in this database: {base:.3f}/animal-day.")
+            print(f"Chance of detecting a x{args.uplift} effect (95% CI excluding 1):\n")
+            print(_table([{"campaigns": int(r.campaigns),
+                           "power": f"{r.power:.0%}",
+                           "typical estimate": f"x{r.median_estimate:.2f}"}
+                          for r in df.itertuples()],
+                         ["campaigns", "power", "typical estimate"]))
+            print("\n  Under 80% power, 'no effect found' means the study was too small, "
+                  "not that outreach doesn't work.")
         else:
             model = fitting.load(settings.db_path)
             if model is None:
@@ -391,6 +403,90 @@ def cmd_campaign(args: argparse.Namespace) -> int:
             eff = outreach.measure_campaigns(conn, model)
             print(json.dumps(eff.to_dict() if eff else
                              {"note": "no campaigns with a full 30-day follow-up yet"}, indent=2))
+    finally:
+        conn.close()
+    return 0
+
+
+def cmd_match_eval(args: argparse.Namespace) -> int:
+    from . import eval_matching as E
+
+    settings = load_settings()
+    conn = db.connect(settings.db_path)
+    db.init_db(conn)
+    profiles = E.generate_profiles(conn, n=args.n, seed=args.seed)
+    conn.close()
+    if not profiles:
+        print("No animals to match against — ingest or simulate first.")
+        return 1
+
+    runs = [("baseline", E.baseline_ranker(args.top))]
+    if args.llm:
+        if not settings.anthropic_api_key:
+            print("--llm needs ANTHROPIC_API_KEY.")
+            return 1
+        runs.append((settings.anthropic_model, E.llm_ranker(settings, args.top)))
+
+    results = []
+    for name, ranker in runs:
+        for pool in (["filtered", "raw"] if not args.filtered_only else ["filtered"]):
+            results.append(E.evaluate(settings, profiles, ranker, name=name, pool=pool,
+                                      top_n=args.top))
+    if args.json:
+        print(json.dumps([r.to_dict() for r in results], indent=2))
+        return 0
+
+    print(f"\n{len(profiles)} generated adopter profiles, top {args.top} suggestions each.\n")
+    print(_table([{
+        "ranker": r.ranker, "pool": r.pool, "picks": r.suggestions,
+        "unsafe %": f"{r.violation_rate:.0%}", "made-up ids %": f"{r.invalid_id_rate:.0%}",
+        "fit": f"{r.mean_utility:.2f}", "unknown info %": f"{r.unknown_reliance:.0%}",
+        "at-risk %": f"{r.at_risk_share:.0%}",
+    } for r in results],
+        ["ranker", "pool", "picks", "unsafe %", "made-up ids %", "fit",
+         "unknown info %", "at-risk %"]))
+    print("\n  filtered = production path (SQL removes unsafe animals first)")
+    print("  raw      = ranker sees everyone; measures whether it keeps households "
+          "safe unaided")
+    for r in results:
+        if r.examples:
+            print(f"\n  {r.ranker}/{r.pool} examples: " + "; ".join(r.examples[:3]))
+    return 0
+
+
+def cmd_feedback(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    conn = db.connect(settings.db_path)
+    db.init_db(conn)
+    try:
+        if args.action == "add":
+            if not args.match_id or not args.outcome:
+                print("--match-id and --outcome are required")
+                return 1
+            db.record_outcome(conn, args.match_id, args.outcome, args.note)
+            print(f"Recorded '{args.outcome}' for match {args.match_id}.")
+        elif args.action == "list":
+            rows = db.recent_matches(conn, limit=args.limit)
+            print(_table([{
+                "match": r["match_id"], "animal": r["animal_name"],
+                "fit": r["fit_score"], "ranker": (r["model"] or "")[:22],
+                "outcome": r["outcome"] or "-",
+                "adopter": (r["adopter"] or "")[:40],
+            } for r in rows], ["match", "animal", "fit", "ranker", "outcome", "adopter"])
+                  if rows else print("No suggestions recorded yet."))
+        else:
+            summary = db.outcome_summary(conn)
+            if not summary:
+                print("No suggestions recorded yet.")
+                return 0
+            print(_table([{
+                "ranker": r["model"], "suggestions": r["suggestions"],
+                "with outcome": r["with_outcome"], "met or adopted": r["met_or_adopted"],
+                "adopted": r["adopted"],
+            } for r in summary],
+                ["ranker", "suggestions", "with outcome", "met or adopted", "adopted"]))
+            print("\n  Record outcomes as they happen; a ranker is only as good as what "
+                  "came of its suggestions.")
     finally:
         conn.close()
     return 0
@@ -557,12 +653,31 @@ def build_parser() -> argparse.ArgumentParser:
     oc.set_defaults(func=cmd_outreach_cycle)
 
     cp = sub.add_parser("campaign", help="record outreach and measure its effect")
-    cp.add_argument("action", choices=["add", "list", "effect"])
+    cp.add_argument("action", choices=["add", "list", "effect", "power"])
     cp.add_argument("--animal-id", type=int)
     cp.add_argument("--kind", default="feature",
                     choices=["feature", "copy", "listing_refresh", "event"])
     cp.add_argument("--note")
+    cp.add_argument("--uplift", type=float, default=1.5,
+                    help="effect size to plan for (power action)")
     cp.set_defaults(func=cmd_campaign)
+
+    me = sub.add_parser("match-eval", help="score the matcher on generated adopters")
+    me.add_argument("--n", type=int, default=20)
+    me.add_argument("--top", type=int, default=5)
+    me.add_argument("--seed", type=int, default=0)
+    me.add_argument("--llm", action="store_true", help="also evaluate Claude (uses the API)")
+    me.add_argument("--filtered-only", action="store_true")
+    me.add_argument("--json", action="store_true")
+    me.set_defaults(func=cmd_match_eval)
+
+    fb = sub.add_parser("feedback", help="record what happened to a suggestion")
+    fb.add_argument("action", choices=["add", "list", "summary"])
+    fb.add_argument("--match-id", type=int)
+    fb.add_argument("--outcome", choices=list(db.MATCH_OUTCOMES))
+    fb.add_argument("--note")
+    fb.add_argument("--limit", type=int, default=25)
+    fb.set_defaults(func=cmd_feedback)
 
     sub.add_parser("app", help="launch the Streamlit dashboard").set_defaults(func=cmd_app)
 

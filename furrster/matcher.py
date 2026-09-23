@@ -202,3 +202,117 @@ def _persist(settings: Settings, profile: AdopterProfile, result: dict[str, Any]
         result["adopter_id"] = adopter_id
     finally:
         conn.close()
+
+
+# --------------------------------------------------------- baseline ranker
+
+# Energy expectations, used to judge lifestyle fit without an LLM. These are
+# rough priors, not measurements: they order candidates, they don't predict.
+HIGH_ENERGY_TAGS = {"playful", "loves walks", "athletic", "active", "energetic"}
+CALM_TAGS = {"couch potato", "gentle", "quiet", "calm", "affectionate"}
+NEEDS_EXPERIENCE = {"needs experienced owner", "shy", "timid", "protective"}
+ACTIVITY_BY_AGE = {"baby": "high", "young": "high", "adult": "moderate", "senior": "low"}
+SIZE_ORDER_FULL = ["small", "medium", "large", "xlarge"]
+
+
+def baseline_rank(profile: "AdopterProfile", candidates: Sequence[dict[str, Any]],
+                  top_n: int = 5) -> dict[str, Any]:
+    """Rule-based ranking: works with no API key, and gives the LLM a bar to clear.
+
+    Points for things the adopter said they need, subtractions for friction the
+    shelter has flagged, and a nudge toward animals that have been waiting — so a
+    tie between two equally good fits goes to the one who needs the home more.
+    Every match carries the reason and a concern, same shape as the LLM's output.
+    """
+    scored = []
+    for c in candidates:
+        score, reasons, concerns = 50.0, [], []
+        tags = {t.lower() for t in json.loads(c.get("tags_json") or "[]")}
+        age = (c.get("age") or "").lower()
+        size = (c.get("size") or "").lower()
+
+        want = profile.activity_level or "moderate"
+        animal_energy = ACTIVITY_BY_AGE.get(age, "moderate")
+        if tags & HIGH_ENERGY_TAGS:
+            animal_energy = "high"
+        elif tags & CALM_TAGS and animal_energy != "high":
+            animal_energy = "low"
+        if animal_energy == want:
+            score += 15
+            reasons.append(f"{animal_energy}-energy, which matches what they described")
+        elif {animal_energy, want} == {"low", "high"}:
+            score -= 20
+            concerns.append(f"{animal_energy}-energy animal for a {want}-activity home")
+
+        if profile.home == "apartment":
+            if size in ("large", "xlarge"):
+                score -= 12
+                concerns.append("large animal in an apartment needs a real exercise plan")
+            elif size == "small":
+                score += 8
+                reasons.append("apartment-sized")
+            if animal_energy == "high" and age in ("baby", "young"):
+                score -= 5
+                concerns.append("young and high-energy without a yard")
+
+        if profile.experience == "first-time":
+            if tags & NEEDS_EXPERIENCE:
+                score -= 18
+                concerns.append("flagged as needing an experienced owner")
+            if c.get("special_needs") == 1:
+                score -= 10
+                concerns.append("special needs are a lot for a first adoption")
+            if c.get("house_trained") == 1:
+                score += 8
+                reasons.append("already house-trained")
+        elif profile.experience == "experienced":
+            if tags & NEEDS_EXPERIENCE or c.get("special_needs") == 1:
+                score += 10
+                reasons.append("the kind of animal that needs an experienced home")
+
+        # Unknown compatibility is not a disqualifier, but it is a question to ask.
+        for key, label in (("good_with_children", "children"), ("good_with_dogs", "dogs"),
+                           ("good_with_cats", "cats")):
+            present = {"good_with_children": profile.has_children,
+                       "good_with_dogs": profile.has_dogs,
+                       "good_with_cats": profile.has_cats}[key]
+            if not present:
+                continue
+            if c.get(key) == 1:
+                score += 6
+                reasons.append(f"known to be good with {label}")
+            elif c.get(key) is None:
+                score -= 4
+                concerns.append(f"no information on how they are with {label}")
+
+        days = float(c.get("days_listed") or 0)
+        score += min(10.0, days / 30.0 * 5)
+        if days > 60:
+            reasons.append(f"waiting {int(days)} days")
+
+        scored.append({
+            "animal_id": c["animal_id"],
+            "fit_score": max(0, min(100, round(score))),
+            "rationale": (f"{c.get('name')} is "
+                          f"{'an' if (age or 'u')[0] in 'aeiou' else 'a'} "
+                          f"{age or 'unknown-age'} "
+                          f"{(c.get('breed_primary') or c.get('type') or 'animal').lower()}"
+                          + (". " + "; ".join(reasons[:3]).capitalize() + "." if reasons else ".")),
+            "concerns": "; ".join(concerns[:2]) or
+                        "Nothing flagged in the record — meet them before deciding.",
+            "questions_to_ask": ([f"How is {c.get('name')} with {c['_unknown']}?"]
+                                 if c.get("_unknown") else
+                                 [f"What does a normal day with {c.get('name')} look like?"]),
+        })
+    scored.sort(key=lambda m: -m["fit_score"])
+    return {"matches": scored[:top_n], "notes": "Ranked by rules, no model involved.",
+            "model": "baseline-rules"}
+
+
+def rank(settings: Settings, profile: "AdopterProfile",
+         candidates: Sequence[dict[str, Any]], *, top_n: int = 5,
+         use_llm: bool = True, llm: "LLM | None" = None) -> dict[str, Any]:
+    """One entry point: Claude when a key is available, rules otherwise."""
+    if use_llm and (llm is not None or settings.anthropic_api_key):
+        return match(settings, profile, top_n=top_n, candidates=candidates, llm=llm)
+    return baseline_rank(profile, candidates, top_n=top_n)

@@ -48,6 +48,9 @@ def test_match_form_returns_shortlist_without_a_key(monkeypatch, sim_db):
     submit.click().run()
     assert not at.exception
     assert any("pass the hard filters" in c.value for c in at.caption)
+    # With no API key the rule-based ranker runs and says so.
+    assert any("baseline-rules" in c.value for c in at.caption)
+    assert any("Suggestions and what came of them" in h.value for h in at.subheader)
 
 
 def test_review_queue_approve(monkeypatch, sim_db):

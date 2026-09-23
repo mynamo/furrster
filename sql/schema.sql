@@ -162,6 +162,19 @@ CREATE TABLE IF NOT EXISTS matches (
     FOREIGN KEY (animal_id)  REFERENCES animals(animal_id)
 );
 
+-- What happened to a suggestion. The only way to find out whether the matcher is
+-- useful rather than merely plausible.
+CREATE TABLE IF NOT EXISTS match_outcomes (
+    outcome_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id    INTEGER NOT NULL,
+    outcome     TEXT NOT NULL,   -- forwarded | met | adopted | declined_adopter | declined_shelter
+    note        TEXT,
+    created_at  TEXT NOT NULL,
+    FOREIGN KEY (match_id) REFERENCES matches(match_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_outcomes_match ON match_outcomes(match_id);
+
 -- Convenience view: everything currently listed, with tenure in days.
 --
 -- Tenure starts at the earliest of: the first published_at we ever saw, and our own

@@ -54,7 +54,7 @@ application name and URL — this repo's GitHub URL works. An Anthropic key (for
 | **At risk** | Filterable queue with reasons; click a row for the factor breakdown and a *Draft copy* button |
 | **Lifecycle** | Survival curves by segment; what slows adoption (rate ratios); listing-edit effect; scorer backtest and calibration |
 | **Outreach** | This week's picks with *Start campaign*; listing gaps per shelter with expected extra adoptions; measured campaign effect |
-| **Match** | Adopter intake form → hard-filter shortlist → optional Claude ranking |
+| **Match** | Adopter intake → hard-filter shortlist → rule-based or Claude ranking; record what came of each suggestion |
 | **Review queue** | Approve, edit or reject every generated bio/post; *Mark as published* turns approved copy into a tracked campaign |
 
 A yellow banner marks any simulated database so a demo is never mistaken for findings.
@@ -75,6 +75,9 @@ A yellow banner marks any simulated database so a demo is never mistaken for fin
 | `draft --count 3` | Bios + Instagram/Facebook/X copy for the top at-risk animals | Anthropic key |
 | `outreach-cycle` | Weekly: refit if stale, pick top animals, draft copy, write gap report to `data/reports/` | (Anthropic key for drafts) |
 | `campaign add/list/effect` | Record outreach for an animal; measure the effect against matched animals | — |
+| `campaign power --uplift 1.5` | How many campaigns are needed to detect an effect that size | — |
+| `match-eval --n 20 [--llm]` | Score the matcher on generated adopters: unsafe picks, made-up animals, fit | (key only for `--llm`) |
+| `feedback add/list/summary` | Record and compare what came of each suggestion | — |
 | `app` | Launch the dashboard | — |
 
 ## Architecture
@@ -172,6 +175,24 @@ this animal down, each with its multiplier. Some details:
   `data/reports/outreach_<date>.md` and `listing_gaps_<date>.csv`, and drafts copy
   into the review queue when an Anthropic key is set.
 
+**`matcher.py` — two rankers and a guardrail.** SQL applies hard constraints first;
+then either the rule-based ranker (no key needed, and the bar Claude has to clear) or
+Claude ranks what's left. `rank()` picks whichever is available.
+
+**`eval_matching.py` — is the matcher any good?** Adopter profiles are generated from
+the animals actually listed, and each ranker's picks are scored on: unsafe
+suggestions (a cat-hostile dog to a cat owner), made-up animal ids, a reference
+utility that is deliberately *not* the ranker's own formula, how often a pick leans
+on unknown compatibility data, and how much of the hard-to-place population it
+reaches. Running it two ways answers a design question: with the SQL filter, the rule
+ranker makes 0% unsafe picks; without it, 48–64%. The guardrail, not the ranker, is
+doing the safety work — which is worth knowing before trusting any model with it.
+
+**Feedback.** Every suggestion is stored, and `match_outcomes` records what happened
+(sent to the adopter, meet-and-greet, adopted, passed). `feedback summary` compares
+rankers on outcomes rather than on plausibility. Without it, "the matches look good"
+is the only evidence there is.
+
 **`matcher.py` / `bios.py`** — hard constraints are applied in SQL before Claude sees
 anything. Unknown stays unknown throughout (no data on cats ≠ bad with cats). The bio
 prompt forbids invented facts and urgency framing, and also returns `unknowns_to_fill`:
@@ -219,6 +240,12 @@ the naive estimate ranged from ×0.8 to ×1.15 (it says outreach does nothing). 
 about 45 campaigns the interval is wide. On real data, plan on roughly 100 or more
 campaigns before trusting a precise number.
 
+**How many campaigns before you can tell?** `campaign power` simulates it. At this
+database's departure rate (0.024 per animal-day) and 30-day windows: a ×1.5 effect
+needs about 100 campaigns for 95% power (50 gives 74%); a ×1.3 effect needs about
+200. Below that, "no effect found" means the study was too small, not that outreach
+doesn't work.
+
 **Calibration.** The fitted score is well calibrated where outreach doesn't
 interfere. At the top end, animals with a predicted "75% still waiting" are observed
 at about 55%. That's expected: scores assume no outreach, and those animals are the
@@ -249,13 +276,15 @@ These passed the hand-written test data and would have broken on real data:
 ## Testing
 
 ```bash
-make test   # 52 tests, no network, no keys
+make test   # 59 tests, no network, no keys
 ```
 
 Covers the HTTP client (MockTransport), ingest edge cases, relist handling,
 migrations, both scorers, recovery of the simulator's planted effects, a check that
 the backtest can't see the future, recovery of a planted campaign effect (and the naive
-estimate missing it), listing-gap valuation, the publish-to-campaign flow, the matcher (with a fake LLM), Kaplan–Meier against a
+estimate missing it), listing-gap valuation, the publish-to-campaign flow, the rule-based matcher, the
+guardrail's contribution measured both ways, an eval that catches a ranker inventing
+animals, the feedback loop, the matcher (with a fake LLM), Kaplan–Meier against a
 hand-worked example and a large simulated sample where the true median is known,
 the review workflow, and a headless run of the Streamlit app (`AppTest`) through every tab.
 

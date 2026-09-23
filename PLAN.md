@@ -6,14 +6,14 @@ tenure, adoption is conversion, and "hard to place" is a churn-risk segment. Eve
 phase below has an analytics analogue named in italics, because that is the thing a
 hiring manager is actually reading for.
 
-## Status (updated 2026-09-22)
+## Status (updated 2026-09-23)
 
 | Phase | State |
 |---|---|
 | 1 · Ingestion + warehouse | ✅ shipped |
 | 2 · Daily pull | ✅ built (`make schedule`) — **switch on once the Petfinder key arrives** |
 | 3 · Lifecycle analytics | ✅ survival curves, edit effect, backtest, fitted scorer v2 |
-| 4 · Matching UI | ✅ Streamlit tab · ⏳ feedback loop, human-agreement eval |
+| 4 · Matching | ✅ two rankers, eval harness, feedback loop · ⏳ human-agreement eval, LLM run on real profiles |
 | 5 · Outreach | ✅ review queue, weekly cycle, listing-gap worklist, campaign effect (matched) · ⏳ prompt A/B, randomized test |
 | 6 · Portfolio surface | ✅ dashboard · ⏳ write-up |
 
@@ -106,16 +106,24 @@ Done (`lifecycle.py`, Lifecycle tab):
 
 ---
 
-## Phase 4 — Matching in front of a human ✅ UI / ⏳ evaluation
+## Phase 4 — Matching ✅ / ⏳ human agreement
 
 *Analogue: propensity scoring + segmentation.*
 
-- ✅ Match tab: intake form → SQL shortlist (unknown compatibility kept, not
-  dropped) → Claude ranking with a named concern for each pick.
-- ⏳ Feedback: record whether a counselor forwarded a match and whether it led to a
-  meet-and-greet. That table is what turns the demo into a working system.
-- ⏳ Evaluation: 30 held-out adopter descriptions, a person ranks the shortlist blind,
-  measure agreement. Report the result even if it's mediocre.
+- ✅ Match tab: intake → SQL shortlist (unknown compatibility kept, not dropped) →
+  ranking, with a named concern for each pick.
+- ✅ Rule-based ranker: works with no API key, and is the comparison Claude has to
+  beat rather than being compared with nothing.
+- ✅ `match-eval`: generated adopter profiles; unsafe-pick rate, made-up-animal rate,
+  reference utility, reliance on unknown data, at-risk reach. Run with and without
+  the SQL filter — the filter accounts for essentially all of the safety today.
+- ✅ Feedback loop: `match_outcomes` + app controls + `feedback summary` by ranker.
+- ⏳ Run `match-eval --llm` once a key is in: does Claude beat the rules on fit, and
+  does it stay safe when the filter is removed?
+- ⏳ Human agreement: 30 real adopter descriptions, a counselor ranks the shortlist
+  blind, measure agreement. Report it even if it's poor.
+- ⏳ Decide from outcomes, not vibes: once ~50 suggestions have outcomes, compare
+  met-or-adopted rates by ranker.
 
 ---
 
@@ -141,9 +149,8 @@ Done (`lifecycle.py`, Lifecycle tab):
   campaigns table already supports it (add `kind = 'feature_rct'`).
 - ⏳ Prompt A/B: alternate two `prompt_version`s and compare published-copy effects
   with the same matched machinery.
-- ⏳ Power: with a ×1.5 true effect and a 30-day window, about how many campaigns
-  are needed for a CI that excludes 1? Simulate it before promising a shelter
-  anything.
+- ✅ Power: `campaign power`. At 0.024 departures/animal-day, a ×1.5 effect needs
+  ~100 campaigns for 95% power, ~50 for 74%; a ×1.3 effect needs ~200.
 
 ---
 

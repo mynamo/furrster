@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT))
 
 from furrster import db, fitting, lifecycle as L, outreach as O  # noqa: E402
 from furrster.config import load_settings  # noqa: E402
-from furrster.matcher import AdopterProfile, shortlist  # noqa: E402
+from furrster.matcher import AdopterProfile, rank as rank_matches, shortlist  # noqa: E402
 from furrster.scoring import score_population  # noqa: E402
 
 # Reference palette (dataviz skill): categorical slots in fixed order, status reserved.
@@ -656,8 +656,11 @@ with tab_match:
         activity = h4.selectbox("Activity", ["moderate", "low", "high"])
         use_llm = st.checkbox("Rank with Claude", value=bool(settings.anthropic_api_key),
                               disabled=not settings.anthropic_api_key,
-                              help=None if settings.anthropic_api_key
-                              else "Add ANTHROPIC_API_KEY to .env to enable")
+                              help="Unticked, the rule-based ranker is used — no API key "
+                                   "needed, and it's the bar Claude has to clear."
+                              if settings.anthropic_api_key
+                              else "Add ANTHROPIC_API_KEY to .env to enable. Until then "
+                                   "the rule-based ranker is used.")
         go = st.form_submit_button("Find matches", type="primary")
 
     if go:
@@ -668,10 +671,10 @@ with tab_match:
         pool = shortlist(settings, profile, limit=25)
         st.caption(f"{len(pool)} animals pass the hard filters "
                    "(unknown compatibility is kept, not excluded).")
-        if use_llm and pool:
-            from furrster.matcher import match
-            with st.spinner("Ranking with Claude…"):
-                result = match(settings, profile, candidates=pool)
+        if pool:
+            with st.spinner("Ranking…"):
+                result = rank_matches(settings, profile, pool, use_llm=use_llm)
+            st.caption(f"Ranked by **{result.get('model', 'baseline-rules')}**.")
             by_id = {r["animal_id"]: r for r in pool}
             for i, m in enumerate(result.get("matches", []), start=1):
                 animal = by_id.get(m.get("animal_id"), {})
@@ -686,11 +689,49 @@ with tab_match:
                         st.markdown(f"- Ask the shelter: {q}")
             if result.get("notes"):
                 st.info(result["notes"])
-        elif pool:
-            st.dataframe(pd.DataFrame(pool)[
-                ["name", "type", "age", "size", "breed_primary", "days_listed",
-                 "good_with_children", "good_with_dogs", "good_with_cats"]],
-                hide_index=True, width="stretch")
+        else:
+            st.warning("Nothing in the database fits those hard constraints.")
+
+    st.divider()
+    st.subheader("Suggestions and what came of them")
+    st.caption("A ranker is only as good as what happened next. Record outcomes here; "
+               "`furrster.cli feedback summary` compares rankers once there are enough.")
+    conn = _conn()
+    recent = db.recent_matches(conn, limit=15)
+    summary = db.outcome_summary(conn)
+    conn.close()
+    if summary:
+        st.dataframe(pd.DataFrame(summary), hide_index=True, width="stretch",
+                     column_config={"model": "Ranker", "suggestions": "Suggestions",
+                                    "with_outcome": "With an outcome",
+                                    "met_or_adopted": "Met or adopted", "adopted": "Adopted"})
+    if not recent:
+        st.info("No suggestions saved yet — run a match above.")
+    else:
+        labels = {"forwarded": "Sent to adopter", "met": "Meet-and-greet",
+                  "adopted": "Adopted", "declined_adopter": "Adopter passed",
+                  "declined_shelter": "Shelter passed"}
+        for m in recent:
+            with st.container(border=True):
+                c1, c2 = st.columns([3, 2])
+                c1.markdown(
+                    f"**{m['animal_name'] or m['animal_id']}** · fit {m['fit_score']} · "
+                    f"{(m['model'] or '?')} · {m['created_at'][:10]}  \n"
+                    f"<span style='color:#52514e'>{(m['adopter'] or '')[:90]}</span>",
+                    unsafe_allow_html=True)
+                current = m["outcome"]
+                if current:
+                    c2.markdown(f"Outcome: **{labels.get(current, current)}**")
+                else:
+                    choice = c2.selectbox("Outcome", ["—"] + list(labels),
+                                          format_func=lambda k: labels.get(k, k),
+                                          key=f"oc-{m['match_id']}",
+                                          label_visibility="collapsed")
+                    if choice != "—":
+                        conn = _conn()
+                        db.record_outcome(conn, m["match_id"], choice)
+                        conn.close()
+                        st.rerun()
 
 # --------------------------------------------------------------------- review
 

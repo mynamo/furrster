@@ -391,3 +391,49 @@ def set_review(
         (status, note, utcnow(), content_id),
     )
     conn.commit()
+
+
+# ------------------------------------------------------- matching feedback
+
+MATCH_OUTCOMES = ("forwarded", "met", "adopted", "declined_adopter", "declined_shelter")
+
+
+def record_outcome(conn: sqlite3.Connection, match_id: int, outcome: str,
+                   note: str | None = None) -> int:
+    if outcome not in MATCH_OUTCOMES:
+        raise ValueError(f"outcome must be one of {MATCH_OUTCOMES}")
+    cur = conn.execute(
+        "INSERT INTO match_outcomes (match_id, outcome, note, created_at) VALUES (?, ?, ?, ?)",
+        (match_id, outcome, note, utcnow()))
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def recent_matches(conn: sqlite3.Connection, limit: int = 25) -> list[dict[str, Any]]:
+    """Suggestions with their latest recorded outcome, newest first."""
+    return rows_to_dicts(conn.execute(
+        """SELECT m.match_id, m.adopter_id, m.animal_id, m.rank, m.fit_score,
+                  m.rationale, m.concerns, m.model, m.created_at,
+                  a.name AS animal_name, a.type AS animal_type, ad.label AS adopter,
+                  (SELECT outcome FROM match_outcomes o WHERE o.match_id = m.match_id
+                    ORDER BY o.outcome_id DESC LIMIT 1) AS outcome
+             FROM matches m
+             LEFT JOIN animals a USING (animal_id)
+             LEFT JOIN adopters ad USING (adopter_id)
+            ORDER BY m.match_id DESC LIMIT ?""", (limit,)).fetchall())
+
+
+def outcome_summary(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Per ranker: how many suggestions, and what became of them."""
+    return rows_to_dicts(conn.execute(
+        """SELECT COALESCE(m.model, 'unknown') AS model,
+                  COUNT(*) AS suggestions,
+                  SUM(o.outcome IS NOT NULL) AS with_outcome,
+                  SUM(o.outcome IN ('met', 'adopted')) AS met_or_adopted,
+                  SUM(o.outcome = 'adopted') AS adopted
+             FROM matches m
+             LEFT JOIN (SELECT match_id, outcome FROM match_outcomes
+                         GROUP BY match_id HAVING outcome_id = MAX(outcome_id)) o
+                    ON o.match_id = m.match_id
+            GROUP BY COALESCE(m.model, 'unknown')
+            ORDER BY suggestions DESC""").fetchall())
